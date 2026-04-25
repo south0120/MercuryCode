@@ -2,6 +2,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Tool } from "./index.js";
 import type { MercuryClient } from "../client.js";
+import { pushUndo } from "../undo.js";
+import { checkSyntax } from "../syntaxCheck.js";
 
 /**
  * Fill-in-Middle code completion via Mercury Edit 2 (`v1/fim/completions`).
@@ -74,12 +76,15 @@ export function makeFimCompleteTool(client: MercuryClient): Tool {
       }
 
       const merged = prefix + completion + suffix;
+      pushUndo(path, "fim_complete");
       writeFileSync(path, merged, "utf8");
+      const syntax = await checkSyntax(path);
       return {
         ok: true,
         path,
         inserted_bytes: Buffer.byteLength(completion),
         completion,
+        syntax_warning: syntax.ok ? undefined : syntax.reason,
       };
     },
   };

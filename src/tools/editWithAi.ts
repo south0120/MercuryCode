@@ -4,6 +4,8 @@ import chalk from "chalk";
 import type { Tool } from "./index.js";
 import type { MercuryClient } from "../client.js";
 import { unifiedDiff } from "../diff.js";
+import { pushUndo } from "../undo.js";
+import { checkSyntax } from "../syntaxCheck.js";
 
 /**
  * Cheap heuristic validation of AI edit output. Returns null when reasonable,
@@ -124,7 +126,9 @@ export function makeEditWithAiTool(client: MercuryClient): Tool {
         }
       }
 
+      pushUndo(path, "edit_with_ai");
       writeFileSync(path, after, "utf8");
+      const syntax = await checkSyntax(path);
       return {
         ok: true,
         path,
@@ -132,6 +136,7 @@ export function makeEditWithAiTool(client: MercuryClient): Tool {
         after_bytes: Buffer.byteLength(after),
         diff: unifiedDiff(before, after),
         warn: warn ?? undefined,
+        syntax_warning: syntax.ok ? undefined : syntax.reason,
       };
     },
   };

@@ -24,6 +24,9 @@ import {
 } from "./marketplace.js";
 import { installPlugin, uninstallPlugin, listInstalledPlugins } from "./installer.js";
 import { runPluginsTui } from "./pluginsTui.js";
+import { popUndo, peekUndo } from "./undo.js";
+import { detectProjectKind } from "./projectKind.js";
+import { spawn } from "node:child_process";
 
 interface BuiltinCommand {
   name: string;
@@ -453,6 +456,33 @@ async function runPluginSubcommand(arg: string): Promise<void> {
   }
 }
 
+// Run the auto-detected build/test command for the current project.
+async function runProjectCommand(kind: "test" | "build"): Promise<void> {
+  const info = detectProjectKind();
+  if (info.kind === "unknown") {
+    ui.error("could not detect project type (no package.json/Cargo.toml/etc.)");
+    return;
+  }
+  const cmd = kind === "test" ? info.testCmd : info.buildCmd;
+  if (!cmd) {
+    ui.error(`no ${kind} command for ${info.kind} project (marker: ${info.marker})`);
+    return;
+  }
+  ui.info(`${chalk.cyan(`$ ${cmd}`)} ${chalk.gray("(" + info.kind + ")")}`);
+  await new Promise<void>((resolve) => {
+    const child = spawn("bash", ["-lc", cmd], { stdio: "inherit" });
+    child.on("close", (code) => {
+      if (code === 0) ui.info(chalk.green(`✓ ${kind} succeeded`));
+      else ui.error(`${kind} failed (exit ${code})`);
+      resolve();
+    });
+    child.on("error", (e) => {
+      ui.error((e as Error).message);
+      resolve();
+    });
+  });
+}
+
 // Helpers used by the picker UIs.
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -873,6 +903,44 @@ function makeBuiltins(): BuiltinCommand[] {
         for (const t of mcpTools) {
           console.log(`  ${chalk.cyan(t.name)} — ${t.description.slice(0, 100)}`);
         }
+        return "continue";
+      },
+    },
+    {
+      name: "undo",
+      description: "revert the most recent write/edit (single step)",
+      async run() {
+        const peek = peekUndo();
+        if (!peek) {
+          ui.info("(nothing to undo)");
+          return "continue";
+        }
+        const r = popUndo();
+        if (!r) {
+          ui.info("(nothing to undo)");
+          return "continue";
+        }
+        if (r.action === "deleted-newly-created") {
+          ui.info(`✓ undo: deleted newly-created ${chalk.cyan(r.path)} (was created by ${r.tool})`);
+        } else {
+          ui.info(`✓ undo: restored ${chalk.cyan(r.path)} (last touched by ${r.tool})`);
+        }
+        return "continue";
+      },
+    },
+    {
+      name: "test",
+      description: "run the project's tests (auto-detected)",
+      async run() {
+        await runProjectCommand("test");
+        return "continue";
+      },
+    },
+    {
+      name: "build",
+      description: "run the project's build (auto-detected)",
+      async run() {
+        await runProjectCommand("build");
         return "continue";
       },
     },

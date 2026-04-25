@@ -2,6 +2,8 @@ import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import chalk from "chalk";
 import type { Tool } from "./index.js";
+import { pushUndo } from "../undo.js";
+import { checkSyntax } from "../syntaxCheck.js";
 
 export const writeFileTool: Tool = {
   name: "write_file",
@@ -37,7 +39,15 @@ export const writeFileTool: Tool = {
     const content = String(args.content ?? "");
     mkdirSync(dirname(path), { recursive: true });
     const existed = existsSync(path);
+    pushUndo(path, "write_file");
     writeFileSync(path, content, "utf8");
-    return { ok: true, path, bytes: Buffer.byteLength(content), overwrote: existed };
+    const syntax = await checkSyntax(path);
+    return {
+      ok: true,
+      path,
+      bytes: Buffer.byteLength(content),
+      overwrote: existed,
+      syntax_warning: syntax.ok ? undefined : syntax.reason,
+    };
   },
 };

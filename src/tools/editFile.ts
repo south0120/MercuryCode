@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import chalk from "chalk";
 import type { Tool } from "./index.js";
 import { unifiedDiff } from "../diff.js";
+import { pushUndo } from "../undo.js";
+import { checkSyntax } from "../syntaxCheck.js";
 
 export const editFileTool: Tool = {
   name: "edit_file",
@@ -47,8 +49,14 @@ export const editFileTool: Tool = {
     if (before.indexOf(oldStr, idx + 1) >= 0)
       throw new Error("old_string appears multiple times; provide more context");
     const after = before.slice(0, idx) + newStr + before.slice(idx + oldStr.length);
+    pushUndo(path, "edit_file");
     writeFileSync(path, after, "utf8");
-    return { ok: true, path };
+    const syntax = await checkSyntax(path);
+    return {
+      ok: true,
+      path,
+      syntax_warning: syntax.ok ? undefined : syntax.reason,
+    };
   },
 };
 

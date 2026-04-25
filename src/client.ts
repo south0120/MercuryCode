@@ -122,17 +122,40 @@ export interface EditCompletionRequest {
 export class MercuryClient {
   constructor(private apiKey: string) {}
 
-  private async post<T>(url: string, body: unknown): Promise<T> {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+  // Retry transient failures (5xx, ECONNRESET, ETIMEDOUT) up to 3 times with
+  // 1s/2s/4s backoff. 4xx (auth, validation) is thrown immediately.
+  private async post<T>(url: string, body: unknown, attempt = 0): Promise<T> {
+    const MAX_ATTEMPTS = 3;
+    const TRANSIENT_STATUS = new Set([500, 502, 503, 504, 522, 524]);
+    const TRANSIENT_NETWORK = /ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|fetch failed/i;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      const msg = (e as Error).message ?? "";
+      if (TRANSIENT_NETWORK.test(msg) && attempt < MAX_ATTEMPTS - 1) {
+        const wait = 1000 * 2 ** attempt;
+        process.stderr.write(`mcode: network blip (${msg.slice(0, 60)}), retry ${attempt + 1}/${MAX_ATTEMPTS - 1} in ${wait}ms\n`);
+        await new Promise((r) => setTimeout(r, wait));
+        return this.post<T>(url, body, attempt + 1);
+      }
+      throw e;
+    }
     if (!res.ok) {
       const text = await res.text();
+      if (TRANSIENT_STATUS.has(res.status) && attempt < MAX_ATTEMPTS - 1) {
+        const wait = 1000 * 2 ** attempt;
+        process.stderr.write(`mcode: API ${res.status}, retry ${attempt + 1}/${MAX_ATTEMPTS - 1} in ${wait}ms\n`);
+        await new Promise((r) => setTimeout(r, wait));
+        return this.post<T>(url, body, attempt + 1);
+      }
       throw new Error(`Mercury API ${res.status} (${new URL(url).pathname}): ${text}`);
     }
     return (await res.json()) as T;

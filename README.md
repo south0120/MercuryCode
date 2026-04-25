@@ -87,6 +87,9 @@ When a line starts with `/` alone, a fuzzy-search picker opens.
 | `/plan` | Toggle plan mode (show steps before execution) ON/OFF |
 | `/cost` `/tokens` | Show token consumption and estimated cost for this session |
 | `/learn TEXT` | Append learned content to `.mcode/MCODE.md` |
+| `/undo` | Revert the most recent write/edit (single step) |
+| `/test` | Run the project's tests (auto-detected from package.json/Cargo.toml/etc.) |
+| `/build` | Run the project's build (auto-detected) |
 | `/model [id]` | Switch the active model (no arg = interactive picker; tools-capable filter) |
 | `/models` | List all available Mercury models with capabilities |
 | `/skills` | List registered skills |

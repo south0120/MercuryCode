@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import chalk from "chalk";
+import { detectProjectKind } from "./projectKind.js";
 
 const USER_MCODE_MD = `# Global mcode memory
 
@@ -51,13 +52,36 @@ One-line description of what this project does.
 - \`<test command>\`
 `;
 
-const HOOKS_TEMPLATE = `{
-  "PreToolUse": [],
-  "PostToolUse": [],
-  "SessionStart": [],
-  "SessionEnd": []
+function hooksTemplateFor(buildCmd: string | undefined, testCmd: string | undefined): string {
+  const post: Array<{ matcher: string; command: string; timeout_ms?: number }> = [];
+  if (buildCmd) {
+    post.push({
+      matcher: "write_file|edit_file|edit_with_ai",
+      command: `${buildCmd} 2>&1 | tail -20 >&2 || echo '[mcode hook] build failed' >&2`,
+      timeout_ms: 90_000,
+    });
+  }
+  if (testCmd && testCmd !== buildCmd) {
+    post.push({
+      matcher: "write_file|edit_file|edit_with_ai",
+      command: `${testCmd} 2>&1 | tail -10 >&2 || echo '[mcode hook] tests failed' >&2`,
+      timeout_ms: 120_000,
+    });
+  }
+  const obj = {
+    PreToolUse: [
+      {
+        matcher: "bash",
+        command:
+          "jq -r '.tool_input.command' | grep -qE '^(rm -rf /|sudo rm|mkfs|dd if=)' && { echo 'destructive command blocked' >&2; exit 2; } || exit 0",
+      },
+    ],
+    PostToolUse: post,
+    SessionStart: [],
+    SessionEnd: [],
+  };
+  return JSON.stringify(obj, null, 2) + "\n";
 }
-`;
 
 const MCP_TEMPLATE = `{
   "mcpServers": {}
@@ -142,8 +166,9 @@ export function initProjectDir(cwd: string, opts: { withMercuryMd?: boolean } = 
     }
   }
 
+  const proj = detectProjectKind(cwd);
   const files: Array<[string, string]> = [
-    [join(root, "hooks.json"), HOOKS_TEMPLATE],
+    [join(root, "hooks.json"), hooksTemplateFor(proj.buildCmd, proj.testCmd)],
     [join(root, "mcp.json"), MCP_TEMPLATE],
     [join(root, "MCODE.md"), PROJECT_MCODE_MD],
     [join(root, ".gitignore"), PROJECT_GITIGNORE],
