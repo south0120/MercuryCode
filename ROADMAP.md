@@ -21,7 +21,7 @@ Status as of v0.3. Items marked ✅ are shipped. Order within each phase is sugg
 - ✅ Mercury Edit 2 integration: `fim_complete` (FIM at line:col) and `edit_with_ai` (NL → file rewrite)
 - ✅ Auto-bootstrap `~/.mcode/` skeleton + `mcode init` for project `.mcode/`
 
-## v0.4 — Daily-driver UX (next)
+## v0.4 — Daily-driver UX (current)
 
 The goal: make mcode comfortable enough to be your default for greenfield scaffolding.
 
@@ -32,6 +32,7 @@ The goal: make mcode comfortable enough to be your default for greenfield scaffo
 - ✅ **Did-you-mean for unknown slash commands** — Levenshtein-based hint
 - ✅ **Markdown rendering** — streaming MD → ANSI (headers, bold/italic, code blocks, links, lists, blockquotes)
 - ✅ **Documented popular MCP servers** — brave-search, fetch, github, filesystem with copy-paste config
+- ✅ **Plugin marketplace (Phase 1 MVP)** — `mcode plugin marketplace add/list/remove/update`, `plugin install/uninstall/browse`. GitHub & local sources, Claude Code marketplace.json compatibility, CLI + REPL surfaces
 - **Multi-line paste detection** — auto-handle pasted multi-line content
 - **Tab completion** — file path completion inside prompts (when input contains a `/path/like/this`)
 - **Improved diff in approval** — side-by-side or syntax-highlighted diff for `edit_file`, with line-anchor context

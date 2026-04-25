@@ -20,6 +20,7 @@ import { makeEditWithAiTool } from "./tools/editWithAi.js";
 import { loadMcpConfig, startAllMcpServers, shutdownMcp, type McpConnection } from "./mcp.js";
 import type { Tool } from "./tools/index.js";
 import { runBootstrap, printBootstrap, initProjectDir } from "./init.js";
+import { runPluginCli } from "./pluginCli.js";
 
 export interface CliFlags {
   yolo: boolean;
@@ -70,6 +71,13 @@ export async function runCli(argv: string[]): Promise<void> {
   program.parse(argv);
   const opts = program.opts<CliFlags>();
   const positional = program.args;
+
+  // `mcode plugin <subcommand>` — marketplace + install. Doesn't need API key.
+  if (positional[0] === "plugin") {
+    const code = await runPluginCli(positional.slice(1));
+    process.exitCode = code;
+    return;
+  }
 
   // `mcode init` — explicit project scaffolding. Doesn't need API key.
   if (positional[0] === "init" && positional.length === 1) {

@@ -13,6 +13,16 @@ import { appendProjectLearning } from "./memory.js";
 import { readInput, type SlashCommand } from "./input.js";
 import { loadPlugins } from "./plugins.js";
 import { loadSkills } from "./skills.js";
+import {
+  addMarketplace,
+  listMarketplaces,
+  getMarketplace,
+  removeMarketplace,
+  updateMarketplace,
+  browseMarketplace,
+  findPluginInRegistry,
+} from "./marketplace.js";
+import { installPlugin, uninstallPlugin, listInstalledPlugins } from "./installer.js";
 
 interface BuiltinCommand {
   name: string;
@@ -96,6 +106,154 @@ export async function runRepl(options: AgentOptions): Promise<void> {
       ui.error((e as Error).message);
     }
   }
+}
+
+// ─── /plugin subcommand router ─────────────────────────────────────────────────
+
+async function runPluginSubcommand(arg: string): Promise<void> {
+  const tokens = arg.trim().split(/\s+/).filter(Boolean);
+  const sub = tokens[0] ?? "help";
+  const rest = tokens.slice(1);
+
+  try {
+    switch (sub) {
+      case "help":
+      case "":
+        printPluginHelp();
+        return;
+
+      case "list": {
+        const installed = listInstalledPlugins();
+        if (!installed.length) ui.info("(no plugins installed in ~/.mcode/plugins/)");
+        else for (const n of installed) console.log(`  ${chalk.magenta(n)}`);
+        return;
+      }
+
+      case "install": {
+        if (!rest[0]) {
+          ui.error("usage: /plugin install <name>[@<marketplace>]");
+          return;
+        }
+        const [name, mp] = rest[0].split("@");
+        const found = findPluginInRegistry(name, mp);
+        ui.info(`installing ${found.plugin.name} from ${found.marketplace.name}…`);
+        const r = await installPlugin(found.plugin, found.marketplace);
+        ui.info(
+          `✓ installed ${chalk.cyan(found.plugin.name)}${r.version ? chalk.gray(" v" + r.version) : ""} → ${r.destDir}`,
+        );
+        ui.info(chalk.yellow("  restart mcode to load tools/skills from this plugin"));
+        return;
+      }
+
+      case "uninstall": {
+        if (!rest[0]) {
+          ui.error("usage: /plugin uninstall <name>");
+          return;
+        }
+        if (uninstallPlugin(rest[0])) ui.info(`✓ uninstalled ${rest[0]}`);
+        else ui.error(`not installed: ${rest[0]}`);
+        return;
+      }
+
+      case "browse": {
+        const mpName = rest[0];
+        const targets = mpName ? [getMarketplace(mpName)].filter(Boolean) : listMarketplaces();
+        if (!targets.length) {
+          ui.info("(no marketplaces — use /plugin marketplace add <source>)");
+          return;
+        }
+        for (const mp of targets) {
+          console.log("\n" + chalk.bold.magenta(`┌─ ${mp!.name}`));
+          try {
+            for (const p of browseMarketplace(mp!.name)) {
+              console.log(
+                `  ${chalk.cyan("• " + p.name.padEnd(28))}${chalk.gray(p.description ?? "")}`,
+              );
+            }
+          } catch (e) {
+            ui.error("  " + (e as Error).message);
+          }
+        }
+        return;
+      }
+
+      case "marketplace": {
+        const mpSub = rest[0] ?? "list";
+        const mpRest = rest.slice(1);
+        if (mpSub === "add") {
+          if (!mpRest[0]) {
+            ui.error("usage: /plugin marketplace add <source>");
+            return;
+          }
+          ui.info(`adding marketplace ${mpRest[0]}…`);
+          const r = await addMarketplace(mpRest[0]);
+          ui.info(`✓ marketplace ${chalk.cyan(r.name)} added (cache: ${r.cache_dir})`);
+        } else if (mpSub === "list") {
+          const all = listMarketplaces();
+          if (!all.length) {
+            ui.info("(no marketplaces — /plugin marketplace add <source>)");
+            return;
+          }
+          for (const m of all) {
+            const src =
+              m.source.source === "github"
+                ? `github:${m.source.repo}`
+                : m.source.source === "url"
+                  ? `url:${m.source.url}`
+                  : `local:${m.source.path}`;
+            console.log(`  ${chalk.cyan(m.name.padEnd(20))} ${chalk.gray(src)}`);
+          }
+        } else if (mpSub === "remove") {
+          if (!mpRest[0]) {
+            ui.error("usage: /plugin marketplace remove <name>");
+            return;
+          }
+          if (removeMarketplace(mpRest[0])) ui.info(`✓ removed marketplace ${mpRest[0]}`);
+          else ui.error(`unknown marketplace: ${mpRest[0]}`);
+        } else if (mpSub === "update") {
+          const targets = mpRest[0] ? [mpRest[0]] : listMarketplaces().map((m) => m.name);
+          if (!targets.length) {
+            ui.info("(no marketplaces to update)");
+            return;
+          }
+          for (const n of targets) {
+            ui.info(`updating ${n}…`);
+            try {
+              await updateMarketplace(n);
+              ui.info(`✓ ${n}`);
+            } catch (e) {
+              ui.error(`${n}: ${(e as Error).message}`);
+            }
+          }
+        } else {
+          ui.error(`unknown marketplace subcommand: ${mpSub}`);
+          printPluginHelp();
+        }
+        return;
+      }
+
+      default:
+        ui.error(`unknown subcommand: ${sub}`);
+        printPluginHelp();
+    }
+  } catch (e) {
+    ui.error((e as Error).message);
+  }
+}
+
+function printPluginHelp(): void {
+  console.log(
+    [
+      `  ${chalk.cyan("/plugin list".padEnd(36))} ${chalk.gray("installed plugins")}`,
+      `  ${chalk.cyan("/plugin install <name>[@<mp>]".padEnd(36))} ${chalk.gray("install plugin from a marketplace")}`,
+      `  ${chalk.cyan("/plugin uninstall <name>".padEnd(36))} ${chalk.gray("remove an installed plugin")}`,
+      `  ${chalk.cyan("/plugin browse [marketplace]".padEnd(36))} ${chalk.gray("list plugins from registered marketplaces")}`,
+      `  ${chalk.cyan("/plugin marketplace add <source>".padEnd(36))} ${chalk.gray("owner/repo, https://..., or ./path")}`,
+      `  ${chalk.cyan("/plugin marketplace list".padEnd(36))} ${chalk.gray("registered marketplaces")}`,
+      `  ${chalk.cyan("/plugin marketplace remove <name>".padEnd(36))} ${chalk.gray("unregister a marketplace")}`,
+      `  ${chalk.cyan("/plugin marketplace update [name]".padEnd(36))} ${chalk.gray("git-pull marketplace cache(s)")}`,
+    ].join("\n"),
+  );
 }
 
 // ─── did-you-mean for unknown commands ─────────────────────────────────────────
@@ -394,6 +552,24 @@ function makeBuiltins(): BuiltinCommand[] {
         } catch (e) {
           ui.error((e as Error).message);
         }
+        return "continue";
+      },
+    },
+    {
+      name: "plugin",
+      description: "manage plugins (list/install/uninstall/browse/marketplace)",
+      async run({ arg }) {
+        await runPluginSubcommand(arg);
+        return "continue";
+      },
+    },
+    {
+      name: "reload-plugins",
+      description: "re-scan plugin directories (restart mcode for full effect)",
+      async run() {
+        const ps = loadPlugins();
+        ui.info(`scanned plugins: ${ps.map((p) => p.manifest.name).join(", ") || "(none)"}`);
+        ui.info(chalk.yellow("note: tools/skills/hooks require restart to fully reload"));
         return "continue";
       },
     },

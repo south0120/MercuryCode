@@ -152,7 +152,26 @@ In REPL, `/skills` lists them.
 
 ### Plugins
 
-A plugin bundle can be placed under `.mcode/plugins/<name>/plugin.json` and may contain commands, skills, hooks, and MCP definitions.
+mcode can install plugins from **marketplaces** (Claude Code-compatible). After registering a marketplace you can `install`/`uninstall`/`browse` plugins via REPL or CLI.
+
+```bash
+# CLI
+mcode plugin marketplace add wshobson/agents      # owner/repo, full URL, or ./path
+mcode plugin browse
+mcode plugin install code-reviewer@wshobson
+mcode plugin list
+mcode plugin uninstall code-reviewer
+
+# REPL (same surface, prefixed with /)
+/plugin marketplace add wshobson/agents
+/plugin install code-reviewer
+```
+
+Marketplaces are stored at `~/.mcode/marketplaces.json`; their git clones land in `~/.mcode/plugins/cache/`. Plugin install copies the source dir to `~/.mcode/plugins/<name>/`.
+
+#### Plugin manifest (Claude Code-compatible)
+
+A plugin bundle can be placed under `.mcode/plugins/<name>/` (or installed via marketplace) and may contain commands, skills, hooks, and MCP definitions. mcode reads either `.claude-plugin/plugin.json` (Claude Code format) or root-level `plugin.json` (mcode native), and both well-known component locations: `commands/` `skills/<name>/SKILL.md` `hooks/hooks.json` (or `hooks.json`) `.mcp.json` (or `mcp.json`).
 
 ```json
 {
