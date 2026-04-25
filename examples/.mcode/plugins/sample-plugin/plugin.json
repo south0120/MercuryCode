@@ -1,0 +1,9 @@
+{
+  "name": "sample-plugin",
+  "version": "0.1.0",
+  "description": "Demonstration plugin: bundles a command, a skill, hooks, and MCP server",
+  "commands": "commands",
+  "skills": "skills",
+  "hooks": "hooks.json",
+  "mcp": "mcp.json"
+}

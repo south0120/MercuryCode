@@ -17,6 +17,10 @@ export interface AgentOptions {
   maxTurns: number;
   sessionFile?: string;
   planMode?: boolean;
+  extraTools?: Tool[];
+  skillsCatalog?: string;
+  pluginCommandsDirs?: string[];
+  pluginHookFiles?: string[];
 }
 
 export interface AgentSession {
@@ -29,7 +33,8 @@ export interface AgentSession {
 }
 
 export function createSession(options: AgentOptions): AgentSession {
-  const tools = selectTools({ readOnly: options.readOnly });
+  const baseTools = selectTools({ readOnly: options.readOnly });
+  const tools = [...baseTools, ...(options.extraTools ?? [])];
   const messages: ChatMessage[] = [];
 
   if (options.sessionFile && existsSync(options.sessionFile)) {
@@ -42,7 +47,13 @@ export function createSession(options: AgentOptions): AgentSession {
   }
 
   if (!messages.some((m) => m.role === "system")) {
-    messages.push({ role: "system", content: buildSystemPrompt({ planMode: options.planMode }) });
+    messages.push({
+      role: "system",
+      content: buildSystemPrompt({
+        planMode: options.planMode,
+        extraInstructions: options.skillsCatalog,
+      }),
+    });
   }
 
   return {
@@ -51,12 +62,15 @@ export function createSession(options: AgentOptions): AgentSession {
     tools,
     messages,
     usage: newUsage(),
-    hooks: loadHooks(),
+    hooks: loadHooks(options.pluginHookFiles ?? []),
   };
 }
 
 export function rebuildSystem(session: AgentSession): void {
-  const sys = buildSystemPrompt({ planMode: session.options.planMode });
+  const sys = buildSystemPrompt({
+    planMode: session.options.planMode,
+    extraInstructions: session.options.skillsCatalog,
+  });
   const idx = session.messages.findIndex((m) => m.role === "system");
   if (idx >= 0) session.messages[idx] = { role: "system", content: sys };
   else session.messages.unshift({ role: "system", content: sys });

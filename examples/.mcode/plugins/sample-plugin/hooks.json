@@ -1,0 +1,8 @@
+{
+  "PostToolUse": [
+    {
+      "matcher": "write_file|edit_file",
+      "command": "echo '[sample-plugin] file mutation observed' >&2"
+    }
+  ]
+}

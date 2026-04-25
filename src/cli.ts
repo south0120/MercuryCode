@@ -6,6 +6,17 @@ import { MercuryClient } from "./client.js";
 import { createSession, runTurn, type AgentOptions } from "./agent.js";
 import { runRepl } from "./repl.js";
 import { ui } from "./ui.js";
+import {
+  loadPlugins,
+  pluginSkillsDirs,
+  pluginMcpFiles,
+  pluginCommandsDirs,
+  pluginHookFiles,
+} from "./plugins.js";
+import { loadSkills, skillsCatalog, type Skill } from "./skills.js";
+import { makeInvokeSkillTool } from "./tools/invokeSkill.js";
+import { loadMcpConfig, startAllMcpServers, shutdownMcp, type McpConnection } from "./mcp.js";
+import type { Tool } from "./tools/index.js";
 
 export interface CliFlags {
   yolo: boolean;
@@ -15,6 +26,8 @@ export interface CliFlags {
   model?: string;
   maxTurns: number;
   plan: boolean;
+  // commander maps `--no-mcp` to a boolean field named `mcp` (default true)
+  mcp: boolean;
 }
 
 const VERSION = "0.1.0";
@@ -33,6 +46,7 @@ export async function runCli(argv: string[]): Promise<void> {
     .option("-m, --model <id>", "model id", "mercury-2")
     .option("--max-turns <n>", "max agent loop turns", (v) => parseInt(v, 10), 20)
     .option("--plan", "plan mode: AI proposes plan before any write/bash", false)
+    .option("--no-mcp", "skip starting MCP servers")
     .allowExcessArguments(false);
 
   program.parse(argv);
@@ -44,6 +58,32 @@ export async function runCli(argv: string[]): Promise<void> {
 
   const sessionFile = opts.session ? join(SESSIONS_DIR, `${opts.session}.json`) : undefined;
 
+  // Plugins → skills → MCP, all extensibility loaded here.
+  const plugins = loadPlugins();
+  if (plugins.length) {
+    ui.info(`plugins: ${plugins.map((p) => p.manifest.name).join(", ")}`);
+  }
+
+  const skills: Skill[] = loadSkills(pluginSkillsDirs(plugins));
+
+  const extraTools: Tool[] = [];
+  if (skills.length) {
+    extraTools.push(makeInvokeSkillTool(skills));
+    ui.info(`skills: ${skills.map((s) => s.name).join(", ")}`);
+  }
+
+  let mcpConnections: McpConnection[] = [];
+  if (opts.mcp !== false) {
+    const mcpConfig = loadMcpConfig(pluginMcpFiles(plugins));
+    if (Object.keys(mcpConfig).length) {
+      mcpConnections = await startAllMcpServers(mcpConfig);
+      for (const conn of mcpConnections) {
+        extraTools.push(...conn.tools);
+        ui.info(`mcp: ${conn.serverName} (${conn.tools.length} tools)`);
+      }
+    }
+  }
+
   const agentOpts: AgentOptions = {
     client,
     model: opts.model || cfg.defaultModel || "mercury-2",
@@ -52,6 +92,10 @@ export async function runCli(argv: string[]): Promise<void> {
     maxTurns: opts.maxTurns,
     sessionFile,
     planMode: opts.plan,
+    extraTools,
+    skillsCatalog: skillsCatalog(skills),
+    pluginCommandsDirs: pluginCommandsDirs(plugins),
+    pluginHookFiles: pluginHookFiles(plugins),
   };
 
   let prompt = "";
@@ -63,17 +107,22 @@ export async function runCli(argv: string[]): Promise<void> {
     prompt = await readStdin();
   }
 
-  if (!prompt.trim()) {
-    await runRepl(agentOpts);
-    return;
-  }
+  const cleanup = async () => {
+    await shutdownMcp(mcpConnections);
+  };
 
-  const session = createSession(agentOpts);
   try {
-    await runTurn(session, prompt);
+    if (!prompt.trim()) {
+      await runRepl(agentOpts);
+    } else {
+      const session = createSession(agentOpts);
+      await runTurn(session, prompt);
+    }
   } catch (e) {
     ui.error((e as Error).message);
     process.exitCode = 1;
+  } finally {
+    await cleanup();
   }
 }
 

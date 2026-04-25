@@ -10,6 +10,8 @@ import { summary as usageSummary } from "./usage.js";
 import { loadCustomCommands, renderCommand, type CustomCommand } from "./commands.js";
 import { appendProjectLearning } from "./memory.js";
 import { readInput, type SlashCommand } from "./input.js";
+import { loadPlugins } from "./plugins.js";
+import { loadSkills } from "./skills.js";
 
 interface BuiltinCommand {
   name: string;
@@ -33,7 +35,7 @@ export async function runRepl(options: AgentOptions): Promise<void> {
   });
   if (options.planMode) ui.info("plan mode: ON");
 
-  const customCommands = loadCustomCommands(homedir());
+  const customCommands = loadCustomCommands(homedir(), options.pluginCommandsDirs ?? []);
   if (customCommands.length) {
     ui.info(`custom commands: ${customCommands.map((c) => "/" + c.name).join(" ")}`);
   }
@@ -256,6 +258,44 @@ function makeBuiltins(): BuiltinCommand[] {
       description: "alias for /cost",
       async run({ session }) {
         console.log(usageSummary(session.usage));
+        return "continue";
+      },
+    },
+    {
+      name: "skills",
+      description: "list registered skills",
+      async run() {
+        const sk = loadSkills();
+        if (!sk.length) ui.info("(no skills found in .mcode/skills/ or ~/.mcode/skills/)");
+        for (const s of sk) {
+          console.log(`  ${chalk.magenta(s.name)} ${chalk.gray(`[${s.source}]`)} — ${s.description}`);
+        }
+        return "continue";
+      },
+    },
+    {
+      name: "plugins",
+      description: "list installed plugins",
+      async run() {
+        const ps = loadPlugins();
+        if (!ps.length) ui.info("(no plugins in .mcode/plugins/ or ~/.mcode/plugins/)");
+        for (const p of ps) {
+          console.log(
+            `  ${chalk.magenta(p.manifest.name)}@${p.manifest.version ?? "0.0.0"} ${chalk.gray(`[${p.source}]`)} — ${p.manifest.description ?? ""}`,
+          );
+        }
+        return "continue";
+      },
+    },
+    {
+      name: "mcp",
+      description: "list active MCP tools (loaded at startup; restart to apply config changes)",
+      async run({ session }) {
+        const mcpTools = session.tools.filter((t) => t.name.startsWith("mcp__"));
+        if (!mcpTools.length) ui.info("(no MCP tools loaded — see .mcode/mcp.json)");
+        for (const t of mcpTools) {
+          console.log(`  ${chalk.cyan(t.name)} — ${t.description.slice(0, 100)}`);
+        }
         return "continue";
       },
     },

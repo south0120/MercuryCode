@@ -27,12 +27,17 @@ function readJson(path: string): HookConfig {
   }
 }
 
-export function loadHooks(): HookConfig {
+export function loadHooks(extraFiles: string[] = []): HookConfig {
   const project = readJson(join(process.cwd(), ".mcode", "hooks.json"));
   const user = readJson(join(homedir(), ".mcode", "hooks.json"));
+  const plugin = extraFiles.map((p) => readJson(p));
   const merged: HookConfig = {};
   for (const key of ["PreToolUse", "PostToolUse", "SessionStart", "SessionEnd"] as const) {
-    merged[key] = [...(user[key] || []), ...(project[key] || [])];
+    merged[key] = [
+      ...(user[key] || []),
+      ...plugin.flatMap((p) => p[key] || []),
+      ...(project[key] || []),
+    ];
   }
   return merged;
 }

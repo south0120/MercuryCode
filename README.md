@@ -99,6 +99,58 @@ Prompt body. Use $ARGUMENTS to interpolate user-supplied args.
 
 `mcode --plan "..."` または REPL 内で `/plan` ON にすると、AI は書込み・bash 系を呼ぶ前に **手順案を必ず先に提示**してユーザー承認を待ちます。
 
+## 拡張: Skills / Plugins / MCP
+
+### Skills
+
+`.mcode/skills/<name>/SKILL.md`（または `~/.mcode/skills/<name>/SKILL.md`）に frontmatter 付き Markdown を置くと、AI が必要に応じて `invoke_skill(name)` ツールでスキル本文を読み込みます。
+
+```markdown
+---
+name: refactor-cleanup
+description: When the user asks to clean up or refactor existing code
+---
+
+スキル本文（AI への詳細指示）
+```
+
+REPL: `/skills` で一覧。
+
+### Plugins
+
+`.mcode/plugins/<name>/plugin.json` で commands/skills/hooks/mcp をバンドル可能。
+
+```json
+{
+  "name": "sample-plugin",
+  "version": "0.1.0",
+  "description": "...",
+  "commands": "commands",
+  "skills": "skills",
+  "hooks": "hooks.json",
+  "mcp": "mcp.json"
+}
+```
+
+サンプル: `examples/.mcode/plugins/sample-plugin/`。REPL: `/plugins` で一覧。
+
+### MCP (Model Context Protocol)
+
+`.mcode/mcp.json`（または `~/.mcode/mcp.json`）に MCP サーバーを設定すると stdio で起動し、提供ツールを `mcp__<server>__<tool>` 名で自動登録します。
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    }
+  }
+}
+```
+
+`--no-mcp` で無効化、`/mcp` で接続中ツール一覧。
+
 ## Tools (v0.1)
 
 | ツール | 承認 |

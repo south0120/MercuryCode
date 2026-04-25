@@ -57,12 +57,16 @@ function loadDir(dir: string, source: "project" | "user"): CustomCommand[] {
   return out;
 }
 
-export function loadCustomCommands(home: string): CustomCommand[] {
+export function loadCustomCommands(home: string, extraDirs: string[] = []): CustomCommand[] {
   const project = loadDir(join(process.cwd(), ".mcode", "commands"), "project");
   const user = loadDir(join(home, ".mcode", "commands"), "user");
-  // project shadows user with same name
+  const plugin = extraDirs.flatMap((d) => loadDir(d, "user"));
+  // project shadows plugin shadows user with same name
   const seen = new Set(project.map((c) => c.name));
-  return [...project, ...user.filter((c) => !seen.has(c.name))];
+  const merged = [...project];
+  for (const c of plugin) if (!seen.has(c.name)) { merged.push(c); seen.add(c.name); }
+  for (const c of user) if (!seen.has(c.name)) { merged.push(c); seen.add(c.name); }
+  return merged;
 }
 
 export function renderCommand(cmd: CustomCommand, args: string): string {
