@@ -119,11 +119,15 @@ function formatToolResult(name: string, result: unknown): string {
       const exit = typeof r.exit_code === "number" ? r.exit_code : -1;
       const stdout = typeof r.stdout === "string" ? r.stdout.trimEnd() : "";
       const stderr = typeof r.stderr === "string" ? r.stderr.trimEnd() : "";
+      const streamed = (r as Record<string, unknown>)._streamed === true;
       const parts: string[] = [];
       if (exit !== 0) parts.push(chalk.red(`  exit ${exit}`));
       else parts.push(chalk.gray(`  exit 0`));
-      if (stdout) parts.push(stdout.split("\n").slice(0, 12).map((l) => "  " + l).join("\n"));
-      if (stderr) parts.push(chalk.red(stderr.split("\n").slice(0, 8).map((l) => "  " + l).join("\n")));
+      // When output was already live-streamed to the terminal, don't re-print it here.
+      if (!streamed) {
+        if (stdout) parts.push(stdout.split("\n").slice(0, 12).map((l) => "  " + l).join("\n"));
+        if (stderr) parts.push(chalk.red(stderr.split("\n").slice(0, 8).map((l) => "  " + l).join("\n")));
+      }
       return parts.join("\n");
     }
     if ("error" in r) {

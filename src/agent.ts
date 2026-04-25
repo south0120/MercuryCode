@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import chalk from "chalk";
 import {
   MercuryClient,
   type ChatMessage,
@@ -11,7 +12,6 @@ import { ui } from "./ui.js";
 import { confirmAction, makeApprovalState, type ApprovalState } from "./approval.js";
 import { add as addUsage, newUsage, type UsageTotals } from "./usage.js";
 import { loadHooks, runHooks, type HookConfig } from "./hooks.js";
-import chalk from "chalk";
 
 export interface AgentOptions {
   client: MercuryClient;
@@ -37,6 +37,9 @@ export interface AgentSession {
   hooks: HookConfig;
   // Cached model accessibility probe results (populated lazily by /model command)
   modelProbe?: Map<string, boolean>;
+  // Track bash commands seen this session — used to warn on repeated failures
+  // and to surface verified build/test commands as project learnings.
+  bashHistory: Map<string, { successes: number; failures: number; lastError?: string }>;
 }
 
 export function createSession(options: AgentOptions): AgentSession {
@@ -70,6 +73,7 @@ export function createSession(options: AgentOptions): AgentSession {
     messages,
     usage: newUsage(),
     hooks: loadHooks(options.pluginHookFiles ?? []),
+    bashHistory: new Map(),
   };
 }
 
@@ -286,9 +290,41 @@ export async function runTurn(session: AgentSession, userPrompt: string): Promis
         }
       }
 
+      // Pre-bash duplicate-failure warning: if the same shell command already
+      // failed earlier this session, surface it before re-running. Silent for
+      // first run; helpful when Mercury starts looping.
+      if (tool.name === "bash") {
+        const cmd = String(args.command ?? "").trim();
+        const seen = session.bashHistory.get(cmd);
+        if (seen && seen.failures > 0) {
+          ui.error(
+            `bash: this exact command failed ${seen.failures}× earlier this session. Last error: ${(seen.lastError ?? "").slice(0, 120)}`,
+          );
+        }
+      }
+
       try {
         const result = await tool.run(args);
         ui.toolResult(tool.name, result, true);
+        // Post-bash bookkeeping: track success/fail counts; flag verified build/test/run.
+        if (tool.name === "bash") {
+          const cmd = String(args.command ?? "").trim();
+          const r = result as { exit_code?: number; stderr?: string };
+          const cur = session.bashHistory.get(cmd) ?? { successes: 0, failures: 0 };
+          if (typeof r.exit_code === "number" && r.exit_code === 0) {
+            cur.successes += 1;
+            // Suggest /learn for typical project verification commands on first success.
+            if (cur.successes === 1 && /^(npm (test|run (test|build|lint|typecheck))|pytest|cargo (test|build)|go (test|build)|deno (test|check))/i.test(cmd)) {
+              ui.info(
+                chalk.gray(`  hint: ${chalk.cyan("/learn 'verified: " + cmd + "'")} to add this to .mcode/MCODE.md`),
+              );
+            }
+          } else {
+            cur.failures += 1;
+            cur.lastError = (r.stderr ?? "").trim().slice(0, 200);
+          }
+          session.bashHistory.set(cmd, cur);
+        }
         session.messages.push({
           role: "tool",
           tool_call_id: call.id,
