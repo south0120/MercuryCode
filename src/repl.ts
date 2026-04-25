@@ -157,19 +157,43 @@ async function runPluginSubcommand(arg: string): Promise<void> {
 
       case "browse": {
         const mpName = rest[0];
-        const targets = mpName ? [getMarketplace(mpName)].filter(Boolean) : listMarketplaces();
-        if (!targets.length) {
-          ui.info("(no marketplaces — use /plugin marketplace add <source>)");
+        const all = listMarketplaces();
+        if (mpName) {
+          const mp = getMarketplace(mpName);
+          if (!mp) {
+            ui.error(`unknown marketplace: ${mpName}`);
+            ui.info(
+              all.length
+                ? `  registered: ${all.map((m) => chalk.cyan(m.name)).join(", ")}`
+                : `  (no marketplaces yet — try: ${chalk.cyan("/plugin marketplace add <owner/repo>")})`,
+            );
+            return;
+          }
+          const plugins = browseMarketplace(mp.name);
+          console.log("\n" + chalk.bold.magenta(`┌─ ${mp.name}`));
+          for (const p of plugins) {
+            console.log(`  ${chalk.cyan("• " + p.name.padEnd(28))}${chalk.gray(p.description ?? "")}`);
+          }
+          console.log(chalk.gray(`  install with: /plugin install <name>@${mp.name}`));
           return;
         }
-        for (const mp of targets) {
-          console.log("\n" + chalk.bold.magenta(`┌─ ${mp!.name}`));
+        if (!all.length) {
+          ui.error("no marketplaces registered yet");
+          console.log(
+            `  Add one to start browsing. Examples:\n` +
+              `    ${chalk.cyan("/plugin marketplace add owner/repo")}    ${chalk.gray("# any GitHub repo with .claude-plugin/marketplace.json")}\n` +
+              `    ${chalk.cyan("/plugin marketplace add ./local/path")} ${chalk.gray("# a local marketplace dir")}\n` +
+              `    ${chalk.cyan("/plugin marketplace add https://...git")} ${chalk.gray("# any git URL")}\n`,
+          );
+          return;
+        }
+        for (const mp of all) {
+          console.log("\n" + chalk.bold.magenta(`┌─ ${mp.name}`));
           try {
-            for (const p of browseMarketplace(mp!.name)) {
-              console.log(
-                `  ${chalk.cyan("• " + p.name.padEnd(28))}${chalk.gray(p.description ?? "")}`,
-              );
+            for (const p of browseMarketplace(mp.name)) {
+              console.log(`  ${chalk.cyan("• " + p.name.padEnd(28))}${chalk.gray(p.description ?? "")}`);
             }
+            console.log(chalk.gray(`  install with: /plugin install <name>@${mp.name}`));
           } catch (e) {
             ui.error("  " + (e as Error).message);
           }

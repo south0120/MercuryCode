@@ -55,16 +55,40 @@ export async function runPluginCli(argv: string[]): Promise<number> {
 
       case "browse": {
         const mpName = rest[0];
-        const targets = mpName ? [getMarketplace(mpName)].filter(Boolean) : listMarketplaces();
-        if (!targets.length) {
-          console.log("(no marketplaces; use `mcode plugin marketplace add <source>`)");
-          return 0;
-        }
-        for (const mp of targets) {
-          console.log(`\n=== ${mp!.name} ===`);
-          for (const p of browseMarketplace(mp!.name)) {
+        const all = listMarketplaces();
+        if (mpName) {
+          const mp = getMarketplace(mpName);
+          if (!mp) {
+            ui.error(`unknown marketplace: ${mpName}`);
+            console.log(
+              all.length
+                ? `  registered: ${all.map((m) => m.name).join(", ")}`
+                : "  (no marketplaces yet; mcode plugin marketplace add <owner/repo>)",
+            );
+            return 1;
+          }
+          const plugins = browseMarketplace(mp.name);
+          console.log(`\n=== ${mp.name} ===`);
+          for (const p of plugins) {
             console.log(`  ${p.name.padEnd(28)} ${p.description ?? ""}`);
           }
+          console.log(`\ninstall with: mcode plugin install <name>@${mp.name}`);
+          return 0;
+        }
+        if (!all.length) {
+          ui.error("no marketplaces registered");
+          console.log("  Add one with:");
+          console.log("    mcode plugin marketplace add owner/repo     # any GitHub repo");
+          console.log("    mcode plugin marketplace add ./local/path   # local dir");
+          console.log("    mcode plugin marketplace add https://...git # any git URL");
+          return 1;
+        }
+        for (const mp of all) {
+          console.log(`\n=== ${mp.name} ===`);
+          for (const p of browseMarketplace(mp.name)) {
+            console.log(`  ${p.name.padEnd(28)} ${p.description ?? ""}`);
+          }
+          console.log(`  install with: mcode plugin install <name>@${mp.name}`);
         }
         return 0;
       }
