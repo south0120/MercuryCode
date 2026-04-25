@@ -1,0 +1,56 @@
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import type { Tool } from "./index.js";
+import { unifiedDiff } from "../diff.js";
+
+export const editFileTool: Tool = {
+  name: "edit_file",
+  description:
+    "Replace one occurrence of old_string with new_string in a file. old_string must match exactly and uniquely.",
+  requiresApproval: true,
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "File path" },
+      old_string: { type: "string", description: "Exact string to find (must be unique in file)" },
+      new_string: { type: "string", description: "Replacement string" },
+    },
+    required: ["path", "old_string", "new_string"],
+  },
+  describe(args) {
+    const path = String(args.path);
+    const oldStr = String(args.old_string ?? "");
+    const newStr = String(args.new_string ?? "");
+    const abs = resolve(process.cwd(), path);
+    if (existsSync(abs)) {
+      try {
+        const before = readFileSync(abs, "utf8");
+        const idx = before.indexOf(oldStr);
+        if (idx >= 0) {
+          const after = before.slice(0, idx) + newStr + before.slice(idx + oldStr.length);
+          return `edit ${path}\n${unifiedDiff(before, after)}`;
+        }
+      } catch {}
+    }
+    return `edit ${path}\n- ${truncate(oldStr)}\n+ ${truncate(newStr)}`;
+  },
+  async run(args) {
+    const path = resolve(process.cwd(), String(args.path));
+    const oldStr = String(args.old_string ?? "");
+    const newStr = String(args.new_string ?? "");
+    if (!oldStr) throw new Error("old_string is empty");
+    const before = readFileSync(path, "utf8");
+    const idx = before.indexOf(oldStr);
+    if (idx < 0) throw new Error("old_string not found in file");
+    if (before.indexOf(oldStr, idx + 1) >= 0)
+      throw new Error("old_string appears multiple times; provide more context");
+    const after = before.slice(0, idx) + newStr + before.slice(idx + oldStr.length);
+    writeFileSync(path, after, "utf8");
+    return { ok: true, path };
+  },
+};
+
+function truncate(s: string, n = 80) {
+  const oneLine = s.replace(/\n/g, "\\n");
+  return oneLine.length > n ? oneLine.slice(0, n - 1) + "…" : oneLine;
+}

@@ -1,0 +1,14 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "bash",
+      "command": "jq -r '.tool_input.command' | grep -qE '^(rm -rf /|sudo rm)' && { echo 'destructive command blocked' >&2; exit 2; } || exit 0"
+    }
+  ],
+  "PostToolUse": [
+    {
+      "matcher": "write_file|edit_file",
+      "command": "jq -r '.tool_input.path' | xargs -I{} sh -c 'test -f \"{}\" && echo \"[hook] wrote {}\"' >&2"
+    }
+  ]
+}

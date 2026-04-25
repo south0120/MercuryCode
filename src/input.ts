@@ -1,0 +1,325 @@
+import { emitKeypressEvents } from "node:readline";
+import chalk from "chalk";
+
+export interface SlashCommand {
+  name: string;
+  description: string;
+  source?: "builtin" | "custom";
+}
+
+export interface ReadInputOptions {
+  commands: SlashCommand[];
+  history: string[];
+  promptSymbol?: string;
+}
+
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+function visualWidth(s: string): number {
+  const plain = stripAnsi(s);
+  let n = 0;
+  for (const ch of plain) {
+    const code = ch.codePointAt(0) || 0;
+    if (
+      code >= 0x1100 &&
+      (code <= 0x115f ||
+        (code >= 0x2e80 && code <= 0x9fff) ||
+        (code >= 0xac00 && code <= 0xd7a3) ||
+        (code >= 0xf900 && code <= 0xfaff) ||
+        (code >= 0xfe30 && code <= 0xfe4f) ||
+        (code >= 0xff00 && code <= 0xff60) ||
+        (code >= 0xffe0 && code <= 0xffe6) ||
+        (code >= 0x20000 && code <= 0x2fffd))
+    ) {
+      n += 2;
+    } else if (code >= 0x20) {
+      n += 1;
+    }
+  }
+  return n;
+}
+
+function termWidth(): number {
+  const w = process.stdout.columns || 80;
+  return Math.max(20, w);
+}
+
+function rule(): string {
+  return chalk.gray("─".repeat(termWidth()));
+}
+
+function fuzzy(query: string, name: string): boolean {
+  if (!query) return true;
+  const n = name.toLowerCase();
+  const q = query.toLowerCase();
+  if (n.startsWith(q)) return true;
+  // subsequence match
+  let i = 0;
+  for (const ch of n) {
+    if (ch === q[i]) i++;
+    if (i >= q.length) return true;
+  }
+  return false;
+}
+
+export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
+  const { commands, history } = opts;
+  const promptStr = opts.promptSymbol ?? chalk.bold.cyan("› ");
+
+  return new Promise((resolve) => {
+    let buffer = "";
+    let cursor = 0; // index into buffer (chars, not visual cols)
+    let selectedIdx = 0;
+    let renderedLines = 0;
+    let cursorRowInBlock = 0; // visual row offset of terminal cursor inside the rendered block (0 = top rule)
+    let historyIdx = history.length; // pointing past end == "no recall"
+    let savedDraft = ""; // current input saved when navigating history
+
+    const stdin = process.stdin;
+    const stdout = process.stdout;
+
+    function suggestions(): SlashCommand[] {
+      if (!buffer.startsWith("/")) return [];
+      // suggestions only for the first token
+      const firstSpace = buffer.indexOf(" ");
+      if (firstSpace >= 0) return [];
+      const q = buffer.slice(1);
+      return commands.filter((c) => fuzzy(q, c.name)).slice(0, 8);
+    }
+
+    function clearRendered() {
+      if (renderedLines === 0) return;
+      // Cursor is currently on row `cursorRowInBlock` of the block (0 = top rule).
+      // Move up to top of block (row 0), then erase from there to end of screen.
+      stdout.write("\r");
+      if (cursorRowInBlock > 0) stdout.write(`\x1b[${cursorRowInBlock}A`);
+      stdout.write("\x1b[J");
+    }
+
+    function render(initial = false) {
+      if (!initial) clearRendered();
+
+      const sugs = suggestions();
+      const lines: string[] = [];
+      lines.push(rule());
+      // input line — long input may wrap; we just print as-is and let terminal wrap.
+      lines.push(promptStr + buffer);
+      for (let i = 0; i < sugs.length; i++) {
+        const s = sugs[i];
+        const sel = i === selectedIdx;
+        const arrow = sel ? chalk.cyan("▶ ") : "  ";
+        const tag = sel ? chalk.bold.cyan("/" + s.name) : chalk.cyan("/" + s.name);
+        const desc = chalk.gray("  " + s.description);
+        lines.push(arrow + tag + desc);
+      }
+      lines.push(rule());
+
+      // Use \r\n explicitly: in raw mode, plain \n only does LF, not CR.
+      stdout.write(lines.join("\r\n"));
+
+      const w = termWidth();
+      const inputVisual = visualWidth(promptStr + buffer);
+      const inputWraps = Math.max(1, Math.ceil(inputVisual / w));
+      const totalVisualLines = 1 /* top rule */ + inputWraps + sugs.length + 1 /* bottom rule */;
+
+      // Cursor target inside block: row = 1 (after top rule) + cursorRowFromInputStart, col = cursorCol
+      const upToCursor = visualWidth(promptStr + buffer.slice(0, cursor));
+      const cursorRowFromInputStart = Math.floor(upToCursor / w);
+      const cursorCol = upToCursor % w;
+      const targetRow = 1 + cursorRowFromInputStart;
+
+      // After write, cursor is at the end of the bottom rule row (block row totalVisualLines - 1).
+      const upBy = totalVisualLines - 1 - targetRow;
+      stdout.write("\r");
+      if (upBy > 0) stdout.write(`\x1b[${upBy}A`);
+      if (cursorCol > 0) stdout.write(`\x1b[${cursorCol}C`);
+
+      renderedLines = totalVisualLines;
+      cursorRowInBlock = targetRow;
+    }
+
+    function moveCursorBelowAll() {
+      // Cursor is at row `cursorRowInBlock` inside the block of size renderedLines.
+      // Move down to just below the bottom rule, then emit a newline so subsequent
+      // output starts on a fresh line (preserving the rendered block above).
+      const linesBelow = Math.max(0, renderedLines - 1 - cursorRowInBlock);
+      stdout.write("\r");
+      if (linesBelow > 0) stdout.write(`\x1b[${linesBelow}B`);
+      stdout.write("\r\n");
+    }
+
+    function done(value: string | undefined) {
+      moveCursorBelowAll();
+      try {
+        stdin.setRawMode?.(false);
+      } catch {}
+      stdin.pause();
+      stdin.removeListener("keypress", onKey);
+      resolve(value);
+    }
+
+    function recallHistory(delta: number) {
+      if (history.length === 0) return;
+      const newIdx = Math.max(0, Math.min(history.length, historyIdx + delta));
+      if (newIdx === historyIdx) return;
+      if (historyIdx === history.length) savedDraft = buffer;
+      historyIdx = newIdx;
+      buffer = newIdx === history.length ? savedDraft : history[newIdx];
+      cursor = buffer.length;
+      selectedIdx = 0;
+      render();
+    }
+
+    const onKey = (
+      ch: string | undefined,
+      key: { name?: string; ctrl?: boolean; meta?: boolean; shift?: boolean; sequence?: string },
+    ) => {
+      if (!key) return;
+      // Ctrl-C / Ctrl-D on empty buffer → cancel
+      if ((key.ctrl && key.name === "c") || (key.ctrl && key.name === "d" && !buffer)) {
+        done(undefined);
+        return;
+      }
+      // Enter
+      if (key.name === "return") {
+        const sugs = suggestions();
+        // If suggestions visible and user has typed at least the slash, accept selection
+        if (sugs.length > 0 && buffer.startsWith("/")) {
+          const sel = sugs[selectedIdx];
+          // If buffer is exact command name match already, just submit
+          if (buffer === "/" + sel.name) {
+            done(buffer);
+          } else {
+            // Otherwise expand to selected command
+            buffer = "/" + sel.name;
+            cursor = buffer.length;
+            done(buffer);
+          }
+          return;
+        }
+        done(buffer);
+        return;
+      }
+      // Tab → expand to selected suggestion (without submitting)
+      if (key.name === "tab") {
+        const sugs = suggestions();
+        if (sugs.length > 0) {
+          buffer = "/" + sugs[selectedIdx].name + " ";
+          cursor = buffer.length;
+          selectedIdx = 0;
+          render();
+        }
+        return;
+      }
+      // Esc → if suggestions open, dismiss; else no-op
+      if (key.name === "escape") {
+        if (suggestions().length) {
+          // simulate dismiss by clearing slash trigger — too aggressive; just no-op
+        }
+        return;
+      }
+      // Arrow up/down → suggestion nav, or history if no suggestions
+      if (key.name === "up") {
+        const sugs = suggestions();
+        if (sugs.length) {
+          selectedIdx = (selectedIdx - 1 + sugs.length) % sugs.length;
+          render();
+        } else {
+          recallHistory(-1);
+        }
+        return;
+      }
+      if (key.name === "down") {
+        const sugs = suggestions();
+        if (sugs.length) {
+          selectedIdx = (selectedIdx + 1) % sugs.length;
+          render();
+        } else {
+          recallHistory(+1);
+        }
+        return;
+      }
+      // Left/Right
+      if (key.name === "left") {
+        if (cursor > 0) {
+          cursor--;
+          render();
+        }
+        return;
+      }
+      if (key.name === "right") {
+        if (cursor < buffer.length) {
+          cursor++;
+          render();
+        }
+        return;
+      }
+      // Home/End
+      if (key.name === "home" || (key.ctrl && key.name === "a")) {
+        cursor = 0;
+        render();
+        return;
+      }
+      if (key.name === "end" || (key.ctrl && key.name === "e")) {
+        cursor = buffer.length;
+        render();
+        return;
+      }
+      // Backspace
+      if (key.name === "backspace") {
+        if (cursor > 0) {
+          buffer = buffer.slice(0, cursor - 1) + buffer.slice(cursor);
+          cursor--;
+          selectedIdx = 0;
+          render();
+        }
+        return;
+      }
+      // Ctrl-W: delete word
+      if (key.ctrl && key.name === "w") {
+        if (cursor > 0) {
+          const left = buffer.slice(0, cursor);
+          const m = left.match(/(\S+\s*|\s+)$/);
+          const cut = m ? m[0].length : 1;
+          buffer = buffer.slice(0, cursor - cut) + buffer.slice(cursor);
+          cursor -= cut;
+          render();
+        }
+        return;
+      }
+      // Ctrl-U: delete to line start
+      if (key.ctrl && key.name === "u") {
+        buffer = buffer.slice(cursor);
+        cursor = 0;
+        render();
+        return;
+      }
+      // Ctrl-L: redraw screen
+      if (key.ctrl && key.name === "l") {
+        process.stdout.write("\x1b[2J\x1b[H");
+        renderedLines = 0;
+        render(true);
+        return;
+      }
+
+      // Printable characters (single grapheme assumed) and pasted text
+      const seq = ch ?? key.sequence ?? "";
+      if (seq && !key.ctrl && !key.meta) {
+        // Filter out control chars
+        const printable = Array.from(seq).filter((c) => c.codePointAt(0)! >= 0x20).join("");
+        if (!printable) return;
+        buffer = buffer.slice(0, cursor) + printable + buffer.slice(cursor);
+        cursor += printable.length;
+        selectedIdx = 0;
+        render();
+      }
+    };
+
+    emitKeypressEvents(stdin);
+    if (stdin.isTTY) stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on("keypress", onKey);
+
+    render(true);
+  });
+}
