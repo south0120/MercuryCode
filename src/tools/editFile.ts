@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import chalk from "chalk";
 import type { Tool } from "./index.js";
 import { unifiedDiff } from "../diff.js";
 
@@ -22,17 +23,18 @@ export const editFileTool: Tool = {
     const oldStr = String(args.old_string ?? "");
     const newStr = String(args.new_string ?? "");
     const abs = resolve(process.cwd(), path);
+    const header = chalk.bold("File: ") + chalk.cyan(path);
     if (existsSync(abs)) {
       try {
         const before = readFileSync(abs, "utf8");
         const idx = before.indexOf(oldStr);
         if (idx >= 0) {
           const after = before.slice(0, idx) + newStr + before.slice(idx + oldStr.length);
-          return `edit ${path}\n${unifiedDiff(before, after)}`;
+          return header + "\n\n" + unifiedDiff(before, after);
         }
       } catch {}
     }
-    return `edit ${path}\n- ${truncate(oldStr)}\n+ ${truncate(newStr)}`;
+    return header + "\n" + chalk.red("- " + truncate(oldStr)) + "\n" + chalk.green("+ " + truncate(newStr));
   },
   async run(args) {
     const path = resolve(process.cwd(), String(args.path));

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import chalk from "chalk";
 import type { Tool } from "./index.js";
 
 const TIMEOUT_MS = 120_000;
@@ -17,7 +18,9 @@ export const bashTool: Tool = {
     required: ["command"],
   },
   describe(args) {
-    return `bash$ ${args.command}${args.cwd ? `\n  in ${args.cwd}` : ""}`;
+    const cmd = chalk.bold.whiteBright("$ " + String(args.command));
+    const where = args.cwd ? "\n" + chalk.gray("  cwd: " + String(args.cwd)) : "";
+    return cmd + where;
   },
   run(args) {
     return new Promise((resolve) => {

@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import chalk from "chalk";
 import type { Tool } from "./index.js";
 
 export const writeFileTool: Tool = {
@@ -16,9 +17,20 @@ export const writeFileTool: Tool = {
     required: ["path", "content"],
   },
   describe(args) {
-    const c = String(args.content ?? "");
-    const preview = c.split("\n").slice(0, 6).join("\n");
-    return `write ${args.path}\n---\n${preview}${c.length > preview.length ? "\n…" : ""}`;
+    const path = String(args.path);
+    const content = String(args.content ?? "");
+    const lines = content.split("\n");
+    const bytes = Buffer.byteLength(content);
+    const exists = (() => {
+      try { return existsSync(resolve(process.cwd(), path)); } catch { return false; }
+    })();
+    const action = exists ? chalk.yellowBright("overwrite") : chalk.greenBright("create");
+    const header =
+      chalk.bold("File: ") + chalk.cyan(path) +
+      chalk.gray(`  (${action}, ${bytes}B, ${lines.length} lines)`);
+    const previewLines = lines.slice(0, 8).map((l) => chalk.gray("  │ ") + l);
+    const more = lines.length > 8 ? chalk.gray(`  │ … (+${lines.length - 8} more lines)`) : "";
+    return [header, "", ...previewLines, more].filter(Boolean).join("\n");
   },
   async run(args) {
     const path = resolve(process.cwd(), String(args.path));
