@@ -31,12 +31,17 @@ Run `mcode init` to scaffold the project skeleton explicitly (idempotent). Use `
 
 ## Install
 
+mcode is currently distributed via GitHub. npm publication will happen once the API stabilizes.
+
 ```bash
-git clone <this-repo> && cd mcode
+git clone https://github.com/south0120/MercuryCode.git
+cd MercuryCode/mcode
 npm install
 npm run build
-npm link        # → `mcode` can be used in any directory
+npm link        # → `mcode` is now on your $PATH
 ```
+
+Hot-reload during development: `npm run dev "your prompt"` (uses `tsx` to run from source without rebuilding).
 
 ## API key
 

@@ -1,7 +1,7 @@
 {
   "name": "mcode-cli",
   "version": "0.1.0",
-  "description": "Mercury-powered coding agent CLI (Claude Code / Codex-style, built on Inception Labs Mercury 2)",
+  "description": "Mercury-powered coding agent CLI — Claude Code / Codex-style experience built on Inception Labs' Mercury 2 diffusion LLM",
   "type": "module",
   "bin": {
     "mcode": "./bin/mcode.js"
@@ -9,7 +9,8 @@
   "files": [
     "bin",
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -18,6 +19,32 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "keywords": [
+    "mcode",
+    "mercury",
+    "mercury-2",
+    "diffusion",
+    "diffusion-llm",
+    "inception-labs",
+    "claude-code",
+    "codex",
+    "coding-agent",
+    "cli",
+    "ai",
+    "mcp",
+    "agent",
+    "tool-use"
+  ],
+  "author": "south0120",
+  "license": "MIT",
+  "homepage": "https://github.com/south0120/MercuryCode#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/south0120/MercuryCode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/south0120/MercuryCode/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
