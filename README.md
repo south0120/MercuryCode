@@ -90,6 +90,7 @@ When a line starts with `/` alone, a fuzzy-search picker opens.
 | `/undo` | Revert the most recent write/edit (single step) |
 | `/test` | Run the project's tests (auto-detected from package.json/Cargo.toml/etc.) |
 | `/build` | Run the project's build (auto-detected) |
+| `/resume <name>` | Load a saved session and continue from there |
 | `/model [id]` | Switch the active model (no arg = interactive picker; tools-capable filter) |
 | `/models` | List all available Mercury models with capabilities |
 | `/skills` | List registered skills |

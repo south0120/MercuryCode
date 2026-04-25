@@ -34,6 +34,7 @@ The goal: make mcode comfortable enough to be your default for greenfield scaffo
 - ✅ **Documented popular MCP servers** — brave-search, fetch, github, filesystem with copy-paste config
 - ✅ **Plugin marketplace (Phase 1 MVP)** — `mcode plugin marketplace add/list/remove/update`, `plugin install/uninstall/browse`. GitHub & local sources, Claude Code marketplace.json compatibility, CLI + REPL surfaces
 - ✅ **Trust floor (Phase A)** — API retry layer, `/undo`, syntax check post-edit, `/test` `/build` shortcuts, project-kind-aware hooks template at `mcode init`
+- ✅ **Friction reducers (Phase B)** — streaming bash output, repeated-failure detection + learn hints, file-path Tab completion, `/sessions` metadata + `/resume`
 - **Multi-line paste detection** — auto-handle pasted multi-line content
 - **Tab completion** — file path completion inside prompts (when input contains a `/path/like/this`)
 - **Improved diff in approval** — side-by-side or syntax-highlighted diff for `edit_file`, with line-anchor context

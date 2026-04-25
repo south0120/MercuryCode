@@ -1,4 +1,6 @@
 import { emitKeypressEvents } from "node:readline";
+import { readdirSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import chalk from "chalk";
 
 export interface SlashCommand {
@@ -107,6 +109,76 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
         }
       }
       return level.filter((c) => fuzzy(partial, c.name)).slice(0, 12);
+    }
+
+    /** Tab-complete a path-like word at cursor. Returns updated buffer/cursor or null. */
+    function tryCompletePath(
+      buf: string,
+      cur: number,
+    ): { buffer: string; cursor: number } | null {
+      const before = buf.slice(0, cur);
+      const after = buf.slice(cur);
+      const wordStart = Math.max(
+        before.lastIndexOf(" ") + 1,
+        before.lastIndexOf("\t") + 1,
+        before.lastIndexOf("\n") + 1,
+      );
+      const afterWS = after.search(/[\s]/);
+      const wordEnd = afterWS < 0 ? buf.length : cur + afterWS;
+      const word = buf.slice(wordStart, wordEnd);
+      if (!word) return null;
+      // Only path-like tokens. Allow optional @ prefix (used for @file inline include).
+      let pathPart = word;
+      let prefix = "";
+      if (pathPart.startsWith("@")) {
+        prefix = "@";
+        pathPart = pathPart.slice(1);
+      }
+      if (!/[/.~]/.test(pathPart)) return null;
+      // Expand ~ to HOME
+      let normalized = pathPart;
+      if (normalized.startsWith("~/")) {
+        normalized = (process.env.HOME ?? "") + normalized.slice(1);
+      }
+      const dir = dirname(normalized) || ".";
+      const base = basename(normalized);
+      const absDir = isAbsolute(dir) ? dir : resolvePath(process.cwd(), dir);
+      let entries: string[];
+      try {
+        entries = readdirSync(absDir);
+      } catch {
+        return null;
+      }
+      const matches = entries.filter((e) => e.startsWith(base));
+      if (!matches.length) return null;
+      // Longest common prefix
+      let common = matches[0];
+      for (let i = 1; i < matches.length; i++) {
+        let k = 0;
+        while (k < common.length && k < matches[i].length && common[k] === matches[i][k]) k++;
+        common = common.slice(0, k);
+        if (!common) break;
+      }
+      if (common.length <= base.length) {
+        // Already at common prefix; nothing further to insert. Surface count.
+        return null;
+      }
+      // Append "/" if the unique match is a directory
+      let appended = common;
+      if (matches.length === 1) {
+        try {
+          const st = statSync(resolvePath(absDir, common));
+          if (st.isDirectory()) appended += "/";
+        } catch {}
+      }
+      // Build the new path string preserving ~ prefix if user used it
+      const replacement =
+        normalized !== pathPart && pathPart.startsWith("~/")
+          ? "~/" + pathPart.slice(2, pathPart.length - base.length) + appended
+          : pathPart.slice(0, pathPart.length - base.length) + appended;
+      const newWord = prefix + replacement;
+      const newBuffer = buf.slice(0, wordStart) + newWord + buf.slice(wordEnd);
+      return { buffer: newBuffer, cursor: wordStart + newWord.length };
     }
 
     function applySuggestion(picked: SlashCommand): string {
@@ -269,7 +341,7 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
         done(buffer);
         return;
       }
-      // Tab → expand to selected suggestion (without submitting)
+      // Tab → slash suggestion expansion if available, else file-path completion.
       if (key.name === "tab") {
         const sugs = suggestions();
         if (sugs.length > 0) {
@@ -278,6 +350,13 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
           buffer = expanded.endsWith(" ") ? expanded : expanded + " ";
           cursor = buffer.length;
           selectedIdx = 0;
+          render();
+          return;
+        }
+        const completed = tryCompletePath(buffer, cursor);
+        if (completed) {
+          buffer = completed.buffer;
+          cursor = completed.cursor;
           render();
         }
         return;

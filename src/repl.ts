@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
@@ -456,6 +456,14 @@ async function runPluginSubcommand(arg: string): Promise<void> {
   }
 }
 
+function humanAge(d: Date): string {
+  const sec = Math.max(0, (Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return `${Math.round(sec)}s ago`;
+  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
+  return `${Math.round(sec / 86400)}d ago`;
+}
+
 // Run the auto-detected build/test command for the current project.
 async function runProjectCommand(kind: "test" | "build"): Promise<void> {
   const info = detectProjectKind();
@@ -677,14 +685,72 @@ function makeBuiltins(): BuiltinCommand[] {
     },
     {
       name: "sessions",
-      description: "list saved sessions",
+      description: "list saved sessions with metadata (most recent first)",
       async run() {
         try {
           const items = readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".json"));
-          if (!items.length) ui.info("(no saved sessions)");
-          else for (const it of items) console.log("  " + it.replace(/\.json$/, ""));
+          if (!items.length) {
+            ui.info("(no saved sessions)");
+            return "continue";
+          }
+          const enriched = items
+            .map((f) => {
+              const path = join(SESSIONS_DIR, f);
+              try {
+                const stat = statSync(path);
+                const msgs = JSON.parse(readFileSync(path, "utf8")) as Array<{
+                  role: string;
+                  content?: string | null;
+                }>;
+                const firstUser = msgs.find((m) => m.role === "user");
+                return {
+                  name: f.replace(/\.json$/, ""),
+                  mtime: stat.mtime,
+                  count: msgs.length,
+                  prompt: (firstUser?.content ?? "").slice(0, 60).replace(/\n/g, " "),
+                };
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean) as Array<{ name: string; mtime: Date; count: number; prompt: string }>;
+          enriched.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+          for (const s of enriched) {
+            const age = humanAge(s.mtime);
+            console.log(
+              `  ${chalk.cyan(s.name.padEnd(20))} ${chalk.gray(`${s.count} msg`.padEnd(8))} ${chalk.gray(age.padEnd(12))} ${chalk.gray(s.prompt)}`,
+            );
+          }
+          ui.info(chalk.gray(`  resume with: /resume <name>`));
         } catch {
           ui.info("(no sessions dir)");
+        }
+        return "continue";
+      },
+    },
+    {
+      name: "resume",
+      description: "load a saved session into the current REPL: /resume <name>",
+      async run({ arg, session }) {
+        const name = arg.trim();
+        if (!name) {
+          ui.error("usage: /resume <name>");
+          return "continue";
+        }
+        const path = join(SESSIONS_DIR, `${name}.json`);
+        if (!existsSync(path)) {
+          ui.error(`no such session: ${name}`);
+          return "continue";
+        }
+        const loaded = JSON.parse(readFileSync(path, "utf8"));
+        session.messages.length = 0;
+        session.messages.push(...loaded);
+        // Wire up the session file so subsequent turns persist back to it.
+        session.options.sessionFile = path;
+        ui.info(`✓ resumed ${chalk.cyan(name)} (${loaded.length} messages)`);
+        const lastUser = [...loaded].reverse().find((m: { role: string }) => m.role === "user");
+        if (lastUser?.content) {
+          ui.info(chalk.gray(`  last user prompt: ${String(lastUser.content).slice(0, 80)}…`));
         }
         return "continue";
       },
