@@ -56,13 +56,15 @@ interface ToolMeta {
 }
 
 const TOOL_META: Record<string, ToolMeta> = {
-  bash:         { verb: "Run",    color: chalk.magentaBright },
-  read_file:    { verb: "Read",   color: chalk.cyanBright },
-  write_file:   { verb: "Write",  color: chalk.greenBright },
-  edit_file:    { verb: "Edit",   color: chalk.yellowBright },
-  list_dir:     { verb: "List",   color: chalk.cyan },
-  grep:         { verb: "Search", color: chalk.cyan },
-  invoke_skill: { verb: "Skill",  color: chalk.magenta },
+  bash:          { verb: "Run",     color: chalk.magentaBright },
+  read_file:     { verb: "Read",    color: chalk.cyanBright },
+  write_file:    { verb: "Write",   color: chalk.greenBright },
+  edit_file:     { verb: "Edit",    color: chalk.yellowBright },
+  list_dir:      { verb: "List",    color: chalk.cyan },
+  grep:          { verb: "Search",  color: chalk.cyan },
+  invoke_skill:  { verb: "Skill",   color: chalk.magenta },
+  fim_complete:  { verb: "FIM",     color: chalk.yellowBright },
+  edit_with_ai:  { verb: "AIEdit",  color: chalk.yellowBright },
 };
 
 function metaFor(name: string): ToolMeta {

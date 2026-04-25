@@ -15,6 +15,8 @@ import {
 } from "./plugins.js";
 import { loadSkills, skillsCatalog, type Skill } from "./skills.js";
 import { makeInvokeSkillTool } from "./tools/invokeSkill.js";
+import { makeFimCompleteTool } from "./tools/fimComplete.js";
+import { makeEditWithAiTool } from "./tools/editWithAi.js";
 import { loadMcpConfig, startAllMcpServers, shutdownMcp, type McpConnection } from "./mcp.js";
 import type { Tool } from "./tools/index.js";
 
@@ -28,6 +30,7 @@ export interface CliFlags {
   plan: boolean;
   // commander maps `--no-mcp` to a boolean field named `mcp` (default true)
   mcp: boolean;
+  editorModel: boolean;
 }
 
 const VERSION = "0.1.0";
@@ -47,6 +50,10 @@ export async function runCli(argv: string[]): Promise<void> {
     .option("--max-turns <n>", "max agent loop turns", (v) => parseInt(v, 10), 20)
     .option("--plan", "plan mode: AI proposes plan before any write/bash", false)
     .option("--no-mcp", "skip starting MCP servers")
+    .option(
+      "--no-editor-model",
+      "don't register Mercury Edit 2 tools (fim_complete, edit_with_ai)",
+    )
     .allowExcessArguments(false);
 
   program.parse(argv);
@@ -70,6 +77,12 @@ export async function runCli(argv: string[]): Promise<void> {
   if (skills.length) {
     extraTools.push(makeInvokeSkillTool(skills));
     ui.info(`skills: ${skills.map((s) => s.name).join(", ")}`);
+  }
+
+  if (opts.editorModel !== false && !opts.readOnly) {
+    extraTools.push(makeFimCompleteTool(client));
+    extraTools.push(makeEditWithAiTool(client));
+    ui.info(`editor-model: mercury-edit-2 (fim_complete, edit_with_ai)`);
   }
 
   let mcpConnections: McpConnection[] = [];

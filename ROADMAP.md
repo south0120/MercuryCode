@@ -18,6 +18,7 @@ Status as of v0.3. Items marked ✅ are shipped. Order within each phase is sugg
 - ✅ Raw-mode TTY input with horizontal-rule UI, live slash-command suggestions, CJK width handling
 - ✅ Color-coded tool calls / approval boxes
 - ✅ `grep` Node-regex fallback when `rg` is missing
+- ✅ Mercury Edit 2 integration: `fim_complete` (FIM at line:col) and `edit_with_ai` (NL → file rewrite)
 
 ## v0.4 — Daily-driver UX (next)
 

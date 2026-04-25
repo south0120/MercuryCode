@@ -1,4 +1,7 @@
-const API_URL = "https://api.inceptionlabs.ai/v1/chat/completions";
+const API_BASE = "https://api.inceptionlabs.ai/v1";
+const CHAT_URL = `${API_BASE}/chat/completions`;
+const FIM_URL = `${API_BASE}/fim/completions`;
+const EDIT_URL = `${API_BASE}/edit/completions`;
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -50,22 +53,58 @@ export interface ChatResponse {
   };
 }
 
+// Fill-in-Middle (Mercury Edit 2)
+export interface FimRequest {
+  model: string; // e.g. "mercury-edit-2"
+  prompt: string; // text BEFORE the insertion point
+  suffix: string; // text AFTER the insertion point
+  max_tokens?: number;
+}
+
+export interface FimResponse {
+  choices: Array<{ index: number; text: string; finish_reason?: string }>;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
+// Next-Edit completion (Mercury Edit 2)
+// Uses chat-style messages with embedded markup tags:
+//   <|code_to_edit|>...<|/code_to_edit|>
+//   <|cursor|>
+//   <|edit_diff_history|>...<|/edit_diff_history|>
+export interface EditCompletionRequest {
+  model: string;
+  messages: ChatMessage[];
+  max_tokens?: number;
+}
+
 export class MercuryClient {
   constructor(private apiKey: string) {}
 
-  async chat(req: ChatRequest): Promise<ChatResponse> {
-    const res = await fetch(API_URL, {
+  private async post<T>(url: string, body: unknown): Promise<T> {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(req),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`Mercury API ${res.status}: ${body}`);
+      const text = await res.text();
+      throw new Error(`Mercury API ${res.status} (${new URL(url).pathname}): ${text}`);
     }
-    return (await res.json()) as ChatResponse;
+    return (await res.json()) as T;
+  }
+
+  chat(req: ChatRequest): Promise<ChatResponse> {
+    return this.post<ChatResponse>(CHAT_URL, req);
+  }
+
+  fim(req: FimRequest): Promise<FimResponse> {
+    return this.post<FimResponse>(FIM_URL, req);
+  }
+
+  editComplete(req: EditCompletionRequest): Promise<ChatResponse> {
+    return this.post<ChatResponse>(EDIT_URL, req);
   }
 }

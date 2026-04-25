@@ -169,16 +169,29 @@ Configure an MCP server in `.mcode/mcp.json` (or `~/.mcode/mcp.json`). It launch
 
 Disable with `--no-mcp`; list connected tools via `/mcp`.
 
-## Tools (v0.1)
+## Tools
 
-| Tool | Approval |
-|---|---|
-| `read_file` | Not required |
-| `list_dir` | Not required |
-| `grep` | Not required |
-| `write_file` | Required (can be omitted with `-y` ) |
-| `edit_file` | Required |
-| `bash` | Required |
+| Tool | Backed by | Approval |
+|---|---|---|
+| `read_file` | Node | Not required |
+| `list_dir` | Node | Not required |
+| `grep` | ripgrep + Node fallback | Not required |
+| `write_file` | Node | Required (`-y` skips) |
+| `edit_file` | Node (deterministic search/replace) | Required |
+| `bash` | Node | Required |
+| `fim_complete` | **Mercury Edit 2** (`v1/fim/completions`) | Required |
+| `edit_with_ai` | **Mercury Edit 2** (`v1/edit/completions`) | Required |
+| `invoke_skill` | local | Not required |
+| `mcp__<server>__<tool>` | configured MCP server | Required |
+
+### Editor model (Mercury Edit 2)
+
+mcode automatically registers two editor tools backed by Inception Labs' code-specialized **Mercury Edit 2** model:
+
+- **`fim_complete`** — fast fill-in-middle insertion at a given `line:column`. Best for autocomplete-style additions where surrounding context is the strongest signal.
+- **`edit_with_ai`** — apply a natural-language instruction to a whole file (refactor, rename, restructure). Returns a unified diff.
+
+The main agent (`mercury-2`) decides when to call them. Disable with `--no-editor-model`.
 
 ## Project memory
 
