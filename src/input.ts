@@ -5,6 +5,8 @@ export interface SlashCommand {
   name: string;
   description: string;
   source?: "builtin" | "custom";
+  /** Nested subcommands shown when the user types `/<this> <partial>`. */
+  subcommands?: SlashCommand[];
 }
 
 export interface ReadInputOptions {
@@ -80,10 +82,42 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
 
     function suggestions(): SlashCommand[] {
       if (!buffer.startsWith("/")) return [];
-      // suggestions only for the first token (no whitespace, no newline)
-      if (/[\s\n]/.test(buffer)) return [];
-      const q = buffer.slice(1);
-      return commands.filter((c) => fuzzy(q, c.name)).slice(0, 8);
+      if (buffer.includes("\n")) return [];
+      // Tokens (preserve trailing empty if buffer ends with a space).
+      const trailingSpace = / $/.test(buffer);
+      const parts = buffer.slice(1).split(/\s+/).filter((p, i, arr) => p !== "" || i === arr.length - 1);
+      // Walk into nested subcommands using the leading exact-name parts.
+      let level: SlashCommand[] = commands;
+      let i = 0;
+      for (; i < parts.length - 1; i++) {
+        const match = level.find((c) => c.name === parts[i]);
+        if (!match || !match.subcommands?.length) {
+          // No further nesting; if a trailing space exists at this point, no sub-suggestions.
+          return [];
+        }
+        level = match.subcommands;
+      }
+      let partial = parts[i] ?? "";
+      if (trailingSpace && partial !== "") {
+        // Trailing space means we have a complete word and want children of THAT word.
+        const match = level.find((c) => c.name === partial);
+        if (match && match.subcommands?.length) {
+          level = match.subcommands;
+          partial = "";
+        }
+      }
+      return level.filter((c) => fuzzy(partial, c.name)).slice(0, 12);
+    }
+
+    function applySuggestion(picked: SlashCommand): string {
+      // Replace the partial under cursor with the picked name.
+      const parts = buffer.slice(1).split(/\s+/);
+      // If buffer ends with space, the "partial" is empty trailing slot.
+      if (/ $/.test(buffer)) parts.push("");
+      parts[parts.length - 1] = picked.name;
+      const next = "/" + parts.join(" ");
+      // If picked has subcommands, append a space so the user can keep typing/picking.
+      return picked.subcommands?.length ? next + " " : next;
     }
 
     function clearRendered() {
@@ -212,18 +246,24 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
         render();
         return;
       }
-      // Plain Enter → submit (or accept selected suggestion)
+      // Plain Enter → submit (or accept selected suggestion if it advances the input)
       if (key.name === "return") {
         const sugs = suggestions();
         if (sugs.length > 0 && buffer.startsWith("/")) {
           const sel = sugs[selectedIdx];
-          if (buffer === "/" + sel.name) {
-            done(buffer);
-          } else {
-            buffer = "/" + sel.name;
+          const expanded = applySuggestion(sel);
+          // If pick adds nesting (trailing space + has subcommands), don't submit yet.
+          if (expanded !== buffer && expanded.endsWith(" ")) {
+            buffer = expanded;
             cursor = buffer.length;
-            done(buffer);
+            selectedIdx = 0;
+            render();
+            return;
           }
+          // Otherwise: if pick equals buffer, submit; if pick differs, expand and submit.
+          buffer = expanded;
+          cursor = buffer.length;
+          done(buffer);
           return;
         }
         done(buffer);
@@ -233,7 +273,9 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
       if (key.name === "tab") {
         const sugs = suggestions();
         if (sugs.length > 0) {
-          buffer = "/" + sugs[selectedIdx].name + " ";
+          const sel = sugs[selectedIdx];
+          const expanded = applySuggestion(sel);
+          buffer = expanded.endsWith(" ") ? expanded : expanded + " ";
           cursor = buffer.length;
           selectedIdx = 0;
           render();

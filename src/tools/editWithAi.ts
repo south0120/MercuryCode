@@ -1,8 +1,32 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import chalk from "chalk";
 import type { Tool } from "./index.js";
 import type { MercuryClient } from "../client.js";
 import { unifiedDiff } from "../diff.js";
+
+/**
+ * Cheap heuristic validation of AI edit output. Returns null when reasonable,
+ * else a short reason. Aimed at catching catastrophic regressions (the model
+ * truncating the file, output being only fences/explanation, or wildly
+ * different bracket counts) — NOT a substitute for build/test verification.
+ */
+function validateEditOutput(after: string, before: string): string | null {
+  const trim = after.trim();
+  if (!trim) return "empty output";
+  if (trim.length < before.trim().length * 0.2)
+    return `output ${trim.length}B << input ${before.trim().length}B (likely truncated)`;
+  const balance = (s: string, open: string, close: string) => {
+    const o = s.split(open).length - 1;
+    const c = s.split(close).length - 1;
+    return o - c;
+  };
+  const dBrace = Math.abs(balance(after, "{", "}") - balance(before, "{", "}"));
+  if (dBrace > 1) return `brace imbalance Δ=${dBrace}`;
+  const dParen = Math.abs(balance(after, "(", ")") - balance(before, "(", ")"));
+  if (dParen > 2) return `paren imbalance Δ=${dParen}`;
+  return null;
+}
 
 /**
  * Apply a natural-language edit instruction to a file using Mercury Edit 2's
@@ -71,6 +95,35 @@ export function makeEditWithAiTool(client: MercuryClient): Tool {
 
       if (!after.trim()) throw new Error("Mercury Edit 2 returned empty response");
 
+      // Heuristic validation. On serious regression, retry once with a stricter prompt.
+      let warn = validateEditOutput(after, before);
+      if (warn) {
+        const retryMsg =
+          userMessage +
+          `\n\nIMPORTANT: Your previous attempt failed validation (${warn}). ` +
+          `Output the FULL file body verbatim. Do NOT truncate, summarize, omit braces, or include explanations. Markdown fences are forbidden.`;
+        const retry = await client.editComplete({
+          model: "mercury-edit-2",
+          messages: [{ role: "user", content: retryMsg }],
+          max_tokens: maxTokens,
+        });
+        let retried = retry.choices?.[0]?.message?.content ?? "";
+        const fence2 = retried.match(/^```[\w-]*\n?([\s\S]*?)```\s*$/);
+        if (fence2) retried = fence2[1];
+        retried = retried.replace(
+          /<\|\/?(?:code_to_edit|cursor|edit_diff_history|current_file_content|recently_viewed_code_snippets)\|>/g,
+          "",
+        );
+        const warn2 = validateEditOutput(retried, before);
+        if (!warn2) {
+          after = retried;
+          warn = null;
+        } else {
+          // Both attempts failed validation; emit a visible warning but still write.
+          console.warn(chalk.yellow(`⚠ edit_with_ai output may be malformed: ${warn} (retry also: ${warn2})`));
+        }
+      }
+
       writeFileSync(path, after, "utf8");
       return {
         ok: true,
@@ -78,6 +131,7 @@ export function makeEditWithAiTool(client: MercuryClient): Tool {
         before_bytes: Buffer.byteLength(before),
         after_bytes: Buffer.byteLength(after),
         diff: unifiedDiff(before, after),
+        warn: warn ?? undefined,
       };
     },
   };

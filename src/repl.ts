@@ -57,7 +57,12 @@ export async function runRepl(options: AgentOptions): Promise<void> {
 
   while (true) {
     const slashCommands: SlashCommand[] = [
-      ...builtins.map((b) => ({ name: b.name, description: b.description, source: "builtin" as const })),
+      ...builtins.map((b) => ({
+        name: b.name,
+        description: b.description,
+        source: "builtin" as const,
+        subcommands: BUILTIN_SUBCOMMANDS[b.name],
+      })),
       ...customCommands.map((c) => ({ name: c.name, description: c.description, source: "custom" as const })),
     ];
 
@@ -107,6 +112,127 @@ export async function runRepl(options: AgentOptions): Promise<void> {
       ui.error((e as Error).message);
     }
   }
+}
+
+// Subcommand declarations consumed by the slash picker so users can drill down
+// with arrow-key selection (e.g. /plugin → marketplace → add).
+const BUILTIN_SUBCOMMANDS: Record<string, SlashCommand[]> = {
+  plugin: [
+    { name: "list", description: "show installed plugins" },
+    { name: "install", description: "install a plugin (interactive picker if no arg)" },
+    { name: "uninstall", description: "remove an installed plugin (picker if no arg)" },
+    { name: "browse", description: "list plugins from registered marketplaces" },
+    {
+      name: "marketplace",
+      description: "manage marketplaces",
+      subcommands: [
+        { name: "add", description: "register a marketplace (owner/repo, URL, or ./path)" },
+        { name: "list", description: "registered marketplaces" },
+        { name: "remove", description: "unregister a marketplace" },
+        { name: "update", description: "git-pull marketplace cache(s)" },
+      ],
+    },
+    { name: "help", description: "show /plugin command help" },
+  ],
+  skill: [
+    { name: "new", description: "create a new skill (guided)" },
+    { name: "list", description: "show registered skills" },
+    { name: "edit", description: "open a skill in $EDITOR" },
+  ],
+};
+
+// ─── /skill new — guided skill creator ───────────────────────────────────────
+
+async function createSkillInteractive(client: import("./client.js").MercuryClient): Promise<void> {
+  const { name } = await prompts({
+    type: "text",
+    name: "name",
+    message: chalk.bold("Skill name (kebab-case, e.g. refactor-cleanup)"),
+    validate: (v) => (/^[a-z][a-z0-9-]*$/.test(String(v ?? "")) ? true : "lowercase + hyphen only"),
+  });
+  if (!name) return;
+
+  const { scope } = await prompts({
+    type: "select",
+    name: "scope",
+    message: "Where should this skill live?",
+    choices: [
+      { title: "User-global (~/.mcode/skills/) — available everywhere", value: "user" },
+      { title: "Project (.mcode/skills/) — only in this project", value: "project" },
+    ],
+    initial: 0,
+  });
+  if (!scope) return;
+
+  const { description } = await prompts({
+    type: "text",
+    name: "description",
+    message: "When should the AI invoke this skill? (one specific sentence)",
+    validate: (v) => (String(v ?? "").length >= 10 ? true : "describe the trigger in at least 10 chars"),
+  });
+  if (!description) return;
+
+  const { mode } = await prompts({
+    type: "select",
+    name: "mode",
+    message: "Skill body",
+    choices: [
+      { title: "Generate with Mercury 2 from a brief", value: "ai" },
+      { title: "Write it myself (multi-line, finish with empty line)", value: "manual" },
+    ],
+    initial: 0,
+  });
+  if (!mode) return;
+
+  let body = "";
+  if (mode === "ai") {
+    const { brief } = await prompts({
+      type: "text",
+      name: "brief",
+      message: "Brief: what should the skill instruct the AI to do?",
+    });
+    if (!brief) return;
+    ui.info("generating skill body with mercury-2…");
+    const sys =
+      "You write SKILL.md bodies for an AI coding assistant. Output ONLY the body markdown — no frontmatter, no surrounding fences, no preface. Keep it focused: what to do, what NOT to do, concrete steps. 60–250 words.";
+    const res = await client.chat({
+      model: "mercury-2",
+      messages: [
+        { role: "system", content: sys },
+        {
+          role: "user",
+          content: `Skill name: ${name}\nTrigger: ${description}\nBrief: ${brief}\n\nWrite the SKILL.md body.`,
+        },
+      ],
+    });
+    body = res.choices[0].message.content?.trim() ?? "";
+  } else {
+    ui.info("Enter the skill body. Press Enter twice (empty line) to finish:");
+    const lines: string[] = [];
+    while (true) {
+      const { line } = await prompts({ type: "text", name: "line", message: "│" });
+      if (line === undefined) return;
+      if (line === "") break;
+      lines.push(line);
+    }
+    body = lines.join("\n");
+  }
+
+  if (!body.trim()) {
+    ui.error("empty body — aborting");
+    return;
+  }
+
+  const home =
+    scope === "project"
+      ? join(process.cwd(), ".mcode", "skills", name)
+      : join(homedir(), ".mcode", "skills", name);
+  mkdirSync(home, { recursive: true });
+  const file = join(home, "SKILL.md");
+  const content = `---\nname: ${name}\ndescription: ${description}\n---\n\n${body.trim()}\n`;
+  writeFileSync(file, content);
+  ui.info(`✓ created ${chalk.cyan(file)}`);
+  ui.info(chalk.yellow("  restart mcode to register the new skill"));
 }
 
 // ─── /plugin subcommand router ─────────────────────────────────────────────────
@@ -687,6 +813,46 @@ function makeBuiltins(): BuiltinCommand[] {
         for (const s of sk) {
           console.log(`  ${chalk.magenta(s.name)} ${chalk.gray(`[${s.source}]`)} — ${s.description}`);
         }
+        return "continue";
+      },
+    },
+    {
+      name: "skill",
+      description: "create or manage skills (new / list / edit)",
+      async run({ arg, session }) {
+        const tokens = arg.trim().split(/\s+/).filter(Boolean);
+        const sub = tokens[0] ?? "list";
+        const rest = tokens.slice(1);
+        if (sub === "new") {
+          await createSkillInteractive(session.options.client);
+          return "continue";
+        }
+        if (sub === "list") {
+          const sk = loadSkills();
+          if (!sk.length) ui.info("(no skills)");
+          for (const s of sk) {
+            console.log(`  ${chalk.magenta(s.name)} ${chalk.gray(`[${s.source}]`)} — ${s.description}`);
+            console.log(chalk.gray(`    ${s.path}`));
+          }
+          return "continue";
+        }
+        if (sub === "edit") {
+          const name = rest[0];
+          if (!name) {
+            ui.error("usage: /skill edit <name>");
+            return "continue";
+          }
+          const sk = loadSkills().find((s) => s.name === name);
+          if (!sk) {
+            ui.error(`unknown skill: ${name}`);
+            return "continue";
+          }
+          ui.info(`open in editor: ${sk.path}`);
+          ui.info(chalk.gray("(use $EDITOR or open the file directly to edit)"));
+          return "continue";
+        }
+        ui.error(`unknown subcommand: ${sub}`);
+        ui.info("  try: /skill new | /skill list | /skill edit <name>");
         return "continue";
       },
     },
