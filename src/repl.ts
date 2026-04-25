@@ -23,6 +23,7 @@ import {
   findPluginInRegistry,
 } from "./marketplace.js";
 import { installPlugin, uninstallPlugin, listInstalledPlugins } from "./installer.js";
+import { runPluginsTui } from "./pluginsTui.js";
 
 interface BuiltinCommand {
   name: string;
@@ -691,15 +692,9 @@ function makeBuiltins(): BuiltinCommand[] {
     },
     {
       name: "plugins",
-      description: "list installed plugins",
+      description: "open the interactive plugin browser (Discover / Installed / Marketplaces)",
       async run() {
-        const ps = loadPlugins();
-        if (!ps.length) ui.info("(no plugins in .mcode/plugins/ or ~/.mcode/plugins/)");
-        for (const p of ps) {
-          console.log(
-            `  ${chalk.magenta(p.manifest.name)}@${p.manifest.version ?? "0.0.0"} ${chalk.gray(`[${p.source}]`)} — ${p.manifest.description ?? ""}`,
-          );
-        }
+        await runPluginsTui();
         return "continue";
       },
     },
