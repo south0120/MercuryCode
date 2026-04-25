@@ -1,17 +1,19 @@
 # mcode
 
-Mercury 2 製のコーディングエージェント CLI。Claude Code / Codex 風の体験を、Inception Labs の高速 dLLM `mercury-2` で。
+A coding agent CLI powered by Mercury 2 — Claude Code / Codex–style experience built on Inception Labs' fast diffusion LLM `mercury-2`.
+
+> 日本語版: [README.ja.md](./README.ja.md)
 
 ## Quickstart
 
 ```bash
-# 1. API キー設定（または初回起動時の対話入力で ~/.mcode/config.json に保存）
+# 1. Set API key (or save via interactive input on first launch to ~/.mcode/config.json)
 export INCEPTION_API_KEY=sk_...
 
-# 2. ワンショットで動作確認（書込み/実行を自動承認）
-mcode -y "hello.py に 'Hello, world!' を出力する Python スクリプトを作って実行確認まで"
+# 2. One-shot smoke test (auto-approve writes & shell)
+mcode -y "create hello.py that prints 'Hello, world!' and verify by running it"
 
-# 3. 対話モード（REPL）
+# 3. Interactive mode (REPL)
 mcode
 ```
 
@@ -21,64 +23,67 @@ mcode
 git clone <this-repo> && cd mcode
 npm install
 npm run build
-npm link        # → 任意ディレクトリで `mcode` が使える
+npm link        # → `mcode` can be used in any directory
 ```
 
 ## API key
 
-以下のいずれかで設定:
+Set using one of the following:
 
-- 環境変数 `INCEPTION_API_KEY=sk_...`
-- cwd の `.env` に `INCEPTION_API_KEY=sk_...`
-- 初回起動時の対話入力（自動で `~/.mcode/config.json` に保存・パーミッション 600）
+- Environment variable `INCEPTION_API_KEY=sk_...`
+- `.env` in cwd with `INCEPTION_API_KEY=sk_...`
+- Interactive input on first launch (automatically saved to `~/.mcode/config.json` with permission 600)
 
 ## Usage
 
 ```bash
-# ワンショット（書込みは承認プロンプト付き）
-mcode "fizzbuzz.py を作って 1〜15 を出力"
+# One-shot (writes require approval prompt)
+mcode "create fizzbuzz.py that prints 1..15"
 
-# 自動承認（CI/速い反復向け）
-mcode -y "READMEに使い方セクション追加して"
+# Auto-approval (for CI / fast iteration)
+mcode -y "add a Usage section to README.md"
 
-# REPL モード
+# REPL mode
 mcode
 
-# プロンプトをファイルから
+# Prompt from file
 mcode -f spec.md
 
-# セッション履歴を残す
-mcode -s feature-x "認証エンドポイント設計して"
-mcode -s feature-x "テストも書いて"
+# Persistent conversation history
+mcode -s feature-x "design the auth endpoint"
+mcode -s feature-x "now write the tests"
 
-# 読み取り専用モード
-mcode --read-only "このプロジェクトの構造説明して"
+# Read-only mode
+mcode --read-only "explain this project's structure"
 ```
 
-## REPL コマンド
+## REPL commands
 
-行頭で `/` 単独入力するとファジー検索ピッカーが開きます。
+When a line starts with `/` alone, a fuzzy-search picker opens.
 
-| コマンド | 動作 |
+| Command | Action |
 |---|---|
-| `/help` | ヘルプ表示 |
-| `/exit` | 終了 |
-| `/clear` | 画面クリア |
-| `/reset` | 会話履歴クリア |
-| `/tools` | 利用可能ツール一覧 |
-| `/save NAME` | 履歴を `~/.mcode/sessions/NAME.json` に保存 |
-| `/load NAME` | 履歴を読み込み |
-| `/sessions` | 保存済セッション一覧 |
-| `/yolo` | 自動承認の ON/OFF |
-| `/plan` | プランモード（実行前に手順提示）の ON/OFF |
-| `/cost` `/tokens` | このセッションのトークン消費・推定費用 |
-| `/learn TEXT` | 学んだ内容を `.mcode/MCODE.md` に追記 |
+| `/help` | Show help |
+| `/exit` | Exit |
+| `/clear` | Clear screen |
+| `/reset` | Clear conversation history |
+| `/tools` | List available tools |
+| `/save NAME` | Save history to `~/.mcode/sessions/NAME.json` |
+| `/load NAME` | Load history |
+| `/sessions` | List saved sessions |
+| `/yolo` | Toggle auto-approval ON/OFF |
+| `/plan` | Toggle plan mode (show steps before execution) ON/OFF |
+| `/cost` `/tokens` | Show token consumption and estimated cost for this session |
+| `/learn TEXT` | Append learned content to `.mcode/MCODE.md` |
+| `/skills` | List registered skills |
+| `/plugins` | List installed plugins |
+| `/mcp` | List active MCP tools |
 
-複数行入力は行末に `\` を付けて改行（次行が続きとして取り込まれます）。
+Multi-line input: end a line with `\` to continue on the next line.
 
-## カスタムコマンド
+## Custom commands
 
-`.mcode/commands/<name>.md` または `~/.mcode/commands/<name>.md` に Markdown を置くと自動で `/name` として登録されます。
+Place a Markdown file under `.mcode/commands/<name>.md` or `~/.mcode/commands/<name>.md` and it will be registered automatically as `/name`.
 
 ```markdown
 ---
@@ -90,11 +95,11 @@ allowed-tools: read_file,bash
 Prompt body. Use $ARGUMENTS to interpolate user-supplied args.
 ```
 
-サンプルは `examples/.mcode/commands/` にあります。
+Sample commands are in `examples/.mcode/commands/`.
 
-## フック
+## Hooks
 
-`.mcode/hooks.json` または `~/.mcode/hooks.json` に PreToolUse / PostToolUse / SessionStart / SessionEnd を設定可能。
+PreToolUse / PostToolUse / SessionStart / SessionEnd can be configured in `.mcode/hooks.json` or `~/.mcode/hooks.json`.
 
 ```json
 {
@@ -104,19 +109,19 @@ Prompt body. Use $ARGUMENTS to interpolate user-supplied args.
 }
 ```
 
-- `matcher`: ツール名の正規表現（省略時は全マッチ）
-- `command`: bash で実行。stdin に `{event, tool_name, tool_input, tool_output, cwd}` の JSON
-- exit code `2` を返すとツール実行をブロック
+- `matcher`: regex for tool name (defaults to all)
+- `command`: executed via bash; receives JSON `{event, tool_name, tool_input, tool_output, cwd}` on stdin
+- Returning exit code `2` blocks the tool execution
 
-## プランモード
+## Plan mode
 
-`mcode --plan "..."` または REPL 内で `/plan` ON にすると、AI は書込み・bash 系を呼ぶ前に **手順案を必ず先に提示**してユーザー承認を待ちます。
+`mcode --plan "..."` or turning `/plan` ON inside REPL makes the AI present a **step plan** before calling write/bash tools, waiting for user approval.
 
-## 拡張: Skills / Plugins / MCP
+## Extensions: Skills / Plugins / MCP
 
 ### Skills
 
-`.mcode/skills/<name>/SKILL.md`（または `~/.mcode/skills/<name>/SKILL.md`）に frontmatter 付き Markdown を置くと、AI が必要に応じて `invoke_skill(name)` ツールでスキル本文を読み込みます。
+Place a front-matter Markdown file at `.mcode/skills/<name>/SKILL.md` (or `~/.mcode/skills/<name>/SKILL.md`). The AI can load the skill text via `invoke_skill(name)` when needed.
 
 ```markdown
 ---
@@ -124,14 +129,14 @@ name: refactor-cleanup
 description: When the user asks to clean up or refactor existing code
 ---
 
-スキル本文（AI への詳細指示）
+Skill body (detailed instructions for the AI)
 ```
 
-REPL: `/skills` で一覧。
+In REPL, `/skills` lists them.
 
 ### Plugins
 
-`.mcode/plugins/<name>/plugin.json` で commands/skills/hooks/mcp をバンドル可能。
+A plugin bundle can be placed under `.mcode/plugins/<name>/plugin.json` and may contain commands, skills, hooks, and MCP definitions.
 
 ```json
 {
@@ -145,11 +150,11 @@ REPL: `/skills` で一覧。
 }
 ```
 
-サンプル: `examples/.mcode/plugins/sample-plugin/`。REPL: `/plugins` で一覧。
+Sample: `examples/.mcode/plugins/sample-plugin/`. In REPL, `/plugins` lists them.
 
 ### MCP (Model Context Protocol)
 
-`.mcode/mcp.json`（または `~/.mcode/mcp.json`）に MCP サーバーを設定すると stdio で起動し、提供ツールを `mcp__<server>__<tool>` 名で自動登録します。
+Configure an MCP server in `.mcode/mcp.json` (or `~/.mcode/mcp.json`). It launches via stdio and automatically registers tools as `mcp__<server>__<tool>`.
 
 ```json
 {
@@ -162,22 +167,26 @@ REPL: `/skills` で一覧。
 }
 ```
 
-`--no-mcp` で無効化、`/mcp` で接続中ツール一覧。
+Disable with `--no-mcp`; list connected tools via `/mcp`.
 
 ## Tools (v0.1)
 
-| ツール | 承認 |
+| Tool | Approval |
 |---|---|
-| `read_file` | 不要 |
-| `list_dir` | 不要 |
-| `grep` | 不要 |
-| `write_file` | 必要（`-y` で省略可） |
-| `edit_file` | 必要 |
-| `bash` | 必要 |
+| `read_file` | Not required |
+| `list_dir` | Not required |
+| `grep` | Not required |
+| `write_file` | Required (can be omitted with `-y` ) |
+| `edit_file` | Required |
+| `bash` | Required |
 
 ## Project memory
 
-cwd に `MERCURY.md` があれば内容が system prompt に注入されます。プロジェクト固有のルール（言語/スタイル/制約）を書いておくと毎回参照されます。
+If a `MERCURY.md` exists in the cwd, its contents are injected into the system prompt. Write project-specific rules (language/style/constraints) there for automatic reference.
+
+## Roadmap
+
+See [ROADMAP.md](./ROADMAP.md) for shipped milestones (v0.1–v0.3) and the planned trajectory toward v1.0 (streaming, subagent parallelism, plugin marketplace, multi-model gateway, etc.).
 
 ## License
 
