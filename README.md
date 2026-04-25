@@ -17,6 +17,18 @@ mcode -y "create hello.py that prints 'Hello, world!' and verify by running it"
 mcode
 ```
 
+## Initialization
+
+mcode auto-creates state files so you don't have to:
+
+| Path | When created | Purpose |
+|---|---|---|
+| `~/.mcode/` (with `skills/`, `plugins/`, `commands/`, `sessions/`, `MCODE.md`) | First launch ever | Global config, your personal skills/plugins/commands, conversation history, global memory |
+| `~/.mcode/config.json` | First time you supply an API key | API key (chmod 600) |
+| `.mcode/` in cwd (with `commands/`, `skills/`, `hooks.json`, `mcp.json`, `MCODE.md`, `.gitignore`) + `MERCURY.md` | First REPL launch in a project (has `.git`, `package.json`, etc.) | Project-local commands/skills/hooks/mcp/memory |
+
+Run `mcode init` to scaffold the project skeleton explicitly (idempotent). Use `--no-auto-init` to disable for one run.
+
 ## Install
 
 ```bash

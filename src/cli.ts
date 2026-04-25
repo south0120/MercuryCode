@@ -19,6 +19,7 @@ import { makeFimCompleteTool } from "./tools/fimComplete.js";
 import { makeEditWithAiTool } from "./tools/editWithAi.js";
 import { loadMcpConfig, startAllMcpServers, shutdownMcp, type McpConnection } from "./mcp.js";
 import type { Tool } from "./tools/index.js";
+import { runBootstrap, printBootstrap, initProjectDir } from "./init.js";
 
 export interface CliFlags {
   yolo: boolean;
@@ -31,6 +32,7 @@ export interface CliFlags {
   // commander maps `--no-mcp` to a boolean field named `mcp` (default true)
   mcp: boolean;
   editorModel: boolean;
+  autoInit: boolean;
 }
 
 const VERSION = "0.1.0";
@@ -54,14 +56,39 @@ export async function runCli(argv: string[]): Promise<void> {
       "--no-editor-model",
       "don't register Mercury Edit 2 tools (fim_complete, edit_with_ai)",
     )
+    .option(
+      "--no-auto-init",
+      "skip auto-creating .mcode/ for this run",
+    )
     .allowExcessArguments(false);
 
   program.parse(argv);
   const opts = program.opts<CliFlags>();
   const positional = program.args;
 
+  // `mcode init` — explicit project scaffolding. Doesn't need API key.
+  if (positional[0] === "init" && positional.length === 1) {
+    const created = initProjectDir(process.cwd(), { withMercuryMd: true });
+    if (created.length === 0) {
+      ui.info("`.mcode/` already initialized in this directory.");
+    } else {
+      ui.info(`✓ initialized .mcode/ — created ${created.length} files`);
+      for (const p of created) ui.info("  " + p.replace(process.cwd() + "/", ""));
+    }
+    return;
+  }
+
   const cfg = await loadConfig();
   const client = new MercuryClient(cfg.apiKey);
+
+  // Always ensure ~/.mcode/ exists; auto-init project .mcode/ when interactive.
+  const isInteractive = process.stdin.isTTY && !opts.file && positional.length === 0;
+  const bootstrap = runBootstrap({
+    cwd: process.cwd(),
+    autoInitProject: opts.autoInit !== false,
+    isInteractive,
+  });
+  printBootstrap(bootstrap);
 
   const sessionFile = opts.session ? join(SESSIONS_DIR, `${opts.session}.json`) : undefined;
 

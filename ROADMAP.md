@@ -19,6 +19,7 @@ Status as of v0.3. Items marked ✅ are shipped. Order within each phase is sugg
 - ✅ Color-coded tool calls / approval boxes
 - ✅ `grep` Node-regex fallback when `rg` is missing
 - ✅ Mercury Edit 2 integration: `fim_complete` (FIM at line:col) and `edit_with_ai` (NL → file rewrite)
+- ✅ Auto-bootstrap `~/.mcode/` skeleton + `mcode init` for project `.mcode/`
 
 ## v0.4 — Daily-driver UX (next)
 
