@@ -130,11 +130,54 @@ async function runPluginSubcommand(arg: string): Promise<void> {
       }
 
       case "install": {
-        if (!rest[0]) {
-          ui.error("usage: /plugin install <name>[@<marketplace>]");
-          return;
+        let target = rest[0];
+        if (!target) {
+          // Interactive picker: gather plugins from all marketplaces.
+          const all = listMarketplaces();
+          if (!all.length) {
+            ui.error("no marketplaces registered");
+            ui.info("  add one first: /plugin marketplace add <owner/repo>");
+            return;
+          }
+          const choices: Array<{ title: string; value: string }> = [];
+          for (const mp of all) {
+            try {
+              for (const p of browseMarketplace(mp.name)) {
+                choices.push({
+                  title:
+                    chalk.cyan(p.name.padEnd(28)) +
+                    chalk.gray("@" + mp.name.padEnd(20)) +
+                    "  " +
+                    chalk.gray(p.description ?? ""),
+                  value: `${p.name}@${mp.name}`,
+                });
+              }
+            } catch {
+              // skip broken marketplace
+            }
+          }
+          if (!choices.length) {
+            ui.error("no plugins found in registered marketplaces");
+            return;
+          }
+          const { picked } = await prompts({
+            type: "autocomplete",
+            name: "picked",
+            message: chalk.bold("Pick a plugin to install (type to filter)"),
+            choices,
+            limit: 15,
+            suggest: async (input: string, cs: Array<{ title: string; value?: unknown }>) =>
+              cs.filter((c) =>
+                fuzzyContains(input, stripAnsi(c.title)),
+              ),
+          });
+          if (!picked) {
+            ui.info("(install cancelled)");
+            return;
+          }
+          target = String(picked);
         }
-        const [name, mp] = rest[0].split("@");
+        const [name, mp] = target.split("@");
         const found = findPluginInRegistry(name, mp);
         ui.info(`installing ${found.plugin.name} from ${found.marketplace.name}…`);
         const r = await installPlugin(found.plugin, found.marketplace);
@@ -146,12 +189,30 @@ async function runPluginSubcommand(arg: string): Promise<void> {
       }
 
       case "uninstall": {
-        if (!rest[0]) {
-          ui.error("usage: /plugin uninstall <name>");
-          return;
+        let target = rest[0];
+        if (!target) {
+          const installed = listInstalledPlugins();
+          if (!installed.length) {
+            ui.error("no plugins installed");
+            return;
+          }
+          const { picked } = await prompts({
+            type: "autocomplete",
+            name: "picked",
+            message: chalk.bold("Pick a plugin to uninstall"),
+            choices: installed.map((n) => ({ title: chalk.magenta(n), value: n })),
+            limit: 15,
+            suggest: async (input: string, cs: Array<{ title: string; value?: unknown }>) =>
+              cs.filter((c) => fuzzyContains(input, stripAnsi(c.title))),
+          });
+          if (!picked) {
+            ui.info("(uninstall cancelled)");
+            return;
+          }
+          target = String(picked);
         }
-        if (uninstallPlugin(rest[0])) ui.info(`✓ uninstalled ${rest[0]}`);
-        else ui.error(`not installed: ${rest[0]}`);
+        if (uninstallPlugin(target)) ui.info(`✓ uninstalled ${target}`);
+        else ui.error(`not installed: ${target}`);
         return;
       }
 
@@ -265,12 +326,31 @@ async function runPluginSubcommand(arg: string): Promise<void> {
   }
 }
 
+// Helpers used by the picker UIs.
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+function fuzzyContains(needle: string, hay: string): boolean {
+  if (!needle) return true;
+  const n = needle.toLowerCase();
+  const h = hay.toLowerCase();
+  if (h.includes(n)) return true;
+  // fall back to subsequence match
+  let i = 0;
+  for (const ch of h) {
+    if (ch === n[i]) i++;
+    if (i >= n.length) return true;
+  }
+  return false;
+}
+
 function printPluginHelp(): void {
   console.log(
     [
       `  ${chalk.cyan("/plugin list".padEnd(36))} ${chalk.gray("installed plugins")}`,
-      `  ${chalk.cyan("/plugin install <name>[@<mp>]".padEnd(36))} ${chalk.gray("install plugin from a marketplace")}`,
-      `  ${chalk.cyan("/plugin uninstall <name>".padEnd(36))} ${chalk.gray("remove an installed plugin")}`,
+      `  ${chalk.cyan("/plugin install".padEnd(36))} ${chalk.gray("interactive picker (fuzzy filter all marketplaces)")}`,
+      `  ${chalk.cyan("/plugin install <name>[@<mp>]".padEnd(36))} ${chalk.gray("install plugin directly")}`,
+      `  ${chalk.cyan("/plugin uninstall".padEnd(36))} ${chalk.gray("interactive picker (installed plugins)")}`,
+      `  ${chalk.cyan("/plugin uninstall <name>".padEnd(36))} ${chalk.gray("remove an installed plugin directly")}`,
       `  ${chalk.cyan("/plugin browse [marketplace]".padEnd(36))} ${chalk.gray("list plugins from registered marketplaces")}`,
       `  ${chalk.cyan("/plugin marketplace add <source>".padEnd(36))} ${chalk.gray("owner/repo, https://..., or ./path")}`,
       `  ${chalk.cyan("/plugin marketplace list".padEnd(36))} ${chalk.gray("registered marketplaces")}`,
