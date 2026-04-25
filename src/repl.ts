@@ -71,6 +71,13 @@ export async function runRepl(options: AgentOptions): Promise<void> {
       const isCustom = customCommands.find((c) => c.name === head);
       if (!isBuiltin && !isCustom) {
         ui.error(`unknown command: /${head}`);
+        const allNames = [...builtins.map((b) => b.name), ...customCommands.map((c) => c.name)];
+        const close = suggestClose(head, allNames).slice(0, 4);
+        if (close.length) {
+          ui.info(`  did you mean: ${close.map((n) => chalk.cyan("/" + n)).join("  ")} ?`);
+        } else {
+          ui.info(`  type ${chalk.cyan("/help")} to see available commands`);
+        }
         continue;
       }
       const action = await dispatch(
@@ -89,6 +96,42 @@ export async function runRepl(options: AgentOptions): Promise<void> {
       ui.error((e as Error).message);
     }
   }
+}
+
+// ─── did-you-mean for unknown commands ─────────────────────────────────────────
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function suggestClose(query: string, names: string[]): string[] {
+  const q = query.toLowerCase();
+  const scored = names.map((n) => {
+    const lower = n.toLowerCase();
+    let score = levenshtein(q, lower);
+    if (lower.startsWith(q)) score -= 2; // prefix match boost
+    if (lower.includes(q)) score -= 1; // substring match boost
+    return { name: n, score };
+  });
+  return scored
+    .filter((x) => x.score <= 3)
+    .sort((a, b) => a.score - b.score)
+    .map((x) => x.name);
 }
 
 // ─── dispatch ──────────────────────────────────────────────────────────────────

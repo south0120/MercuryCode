@@ -93,7 +93,7 @@ When a line starts with `/` alone, a fuzzy-search picker opens.
 | `/plugins` | List installed plugins |
 | `/mcp` | List active MCP tools |
 
-Multi-line input: end a line with `\` to continue on the next line.
+Multi-line input: press **Ctrl+Enter** (or **Ctrl+J** / **Option+Enter**) to insert a newline; plain **Enter** submits.
 
 Inline file references: write `@path/to/file` in any prompt and mcode will read the file and inline its contents into the message before sending. Skipped silently if the path doesn't exist or is binary/oversized.
 

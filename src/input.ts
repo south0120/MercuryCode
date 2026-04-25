@@ -80,9 +80,8 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
 
     function suggestions(): SlashCommand[] {
       if (!buffer.startsWith("/")) return [];
-      // suggestions only for the first token
-      const firstSpace = buffer.indexOf(" ");
-      if (firstSpace >= 0) return [];
+      // suggestions only for the first token (no whitespace, no newline)
+      if (/[\s\n]/.test(buffer)) return [];
       const q = buffer.slice(1);
       return commands.filter((c) => fuzzy(q, c.name)).slice(0, 8);
     }
@@ -96,14 +95,24 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
       stdout.write("\x1b[J");
     }
 
+    const CONT_PREFIX = chalk.gray("· ");
+
+    function linePrefix(idx: number): string {
+      return idx === 0 ? promptStr : CONT_PREFIX;
+    }
+
     function render(initial = false) {
       if (!initial) clearRendered();
 
+      const w = termWidth();
       const sugs = suggestions();
+      const inputLines = buffer.split("\n");
+
       const lines: string[] = [];
       lines.push(rule());
-      // input line — long input may wrap; we just print as-is and let terminal wrap.
-      lines.push(promptStr + buffer);
+      for (let i = 0; i < inputLines.length; i++) {
+        lines.push(linePrefix(i) + inputLines[i]);
+      }
       for (let i = 0; i < sugs.length; i++) {
         const s = sugs[i];
         const sel = i === selectedIdx;
@@ -117,18 +126,29 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
       // Use \r\n explicitly: in raw mode, plain \n only does LF, not CR.
       stdout.write(lines.join("\r\n"));
 
-      const w = termWidth();
-      const inputVisual = visualWidth(promptStr + buffer);
-      const inputWraps = Math.max(1, Math.ceil(inputVisual / w));
-      const totalVisualLines = 1 /* top rule */ + inputWraps + sugs.length + 1 /* bottom rule */;
+      // Compute visual rows occupied by each input line (handles wrap).
+      const inputRows: number[] = inputLines.map((l, i) => {
+        const vis = visualWidth(linePrefix(i) + l);
+        return Math.max(1, Math.ceil(vis / w));
+      });
+      const totalInputRows = inputRows.reduce((a, b) => a + b, 0);
+      const totalVisualLines = 1 /* top rule */ + totalInputRows + sugs.length + 1 /* bottom rule */;
 
-      // Cursor target inside block: row = 1 (after top rule) + cursorRowFromInputStart, col = cursorCol
-      const upToCursor = visualWidth(promptStr + buffer.slice(0, cursor));
-      const cursorRowFromInputStart = Math.floor(upToCursor / w);
-      const cursorCol = upToCursor % w;
-      const targetRow = 1 + cursorRowFromInputStart;
+      // Find which input line the cursor lives on.
+      const beforeCursor = buffer.slice(0, cursor);
+      const cursorLineIdx = (beforeCursor.match(/\n/g) || []).length;
+      const colChars = beforeCursor.length - (beforeCursor.lastIndexOf("\n") + 1);
+      const partialLine = inputLines[cursorLineIdx].slice(0, colChars);
+      const cursorVisX = visualWidth(linePrefix(cursorLineIdx) + partialLine);
+      const cursorWrapRow = Math.floor(cursorVisX / w);
+      const cursorCol = cursorVisX % w;
 
-      // After write, cursor is at the end of the bottom rule row (block row totalVisualLines - 1).
+      // Sum visual rows of input lines BEFORE the cursor's line.
+      let rowsBeforeCursorLine = 0;
+      for (let i = 0; i < cursorLineIdx; i++) rowsBeforeCursorLine += inputRows[i];
+
+      const targetRow = 1 + rowsBeforeCursorLine + cursorWrapRow;
+
       const upBy = totalVisualLines - 1 - targetRow;
       stdout.write("\r");
       if (upBy > 0) stdout.write(`\x1b[${upBy}A`);
@@ -180,17 +200,26 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
         done(undefined);
         return;
       }
-      // Enter
+      // Newline insertion: Ctrl+Enter, Ctrl+J, Option+Enter, Shift+Enter (terminal-dependent)
+      if (
+        (key.ctrl && (key.name === "j" || key.name === "return" || key.name === "enter")) ||
+        (key.meta && key.name === "return") ||
+        (key.shift && key.name === "return")
+      ) {
+        buffer = buffer.slice(0, cursor) + "\n" + buffer.slice(cursor);
+        cursor++;
+        selectedIdx = 0;
+        render();
+        return;
+      }
+      // Plain Enter → submit (or accept selected suggestion)
       if (key.name === "return") {
         const sugs = suggestions();
-        // If suggestions visible and user has typed at least the slash, accept selection
         if (sugs.length > 0 && buffer.startsWith("/")) {
           const sel = sugs[selectedIdx];
-          // If buffer is exact command name match already, just submit
           if (buffer === "/" + sel.name) {
             done(buffer);
           } else {
-            // Otherwise expand to selected command
             buffer = "/" + sel.name;
             cursor = buffer.length;
             done(buffer);

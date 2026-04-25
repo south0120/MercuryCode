@@ -28,7 +28,9 @@ The goal: make mcode comfortable enough to be your default for greenfield scaffo
 - ✅ **Streaming output** — render assistant tokens incrementally as they arrive (SSE)
 - ✅ **Inline file references** — `@path/to/file` in prompt auto-inlines file contents
 - ✅ **In-session model switching** — `/model` picker probes account-accessible Mercury models
-- **Multi-line input** — `Ctrl+J` newline, multi-line paste detection, render input box growing
+- ✅ **Multi-line input** — Ctrl+Enter / Ctrl+J / Option+Enter inserts newline; multi-line render
+- ✅ **Did-you-mean for unknown slash commands** — Levenshtein-based hint
+- **Multi-line paste detection** — auto-handle pasted multi-line content
 - **Tab completion** — file path completion inside prompts (when input contains a `/path/like/this`)
 - **Improved diff in approval** — side-by-side or syntax-highlighted diff for `edit_file`, with line-anchor context
 - **`/undo`** — revert the last `write_file` / `edit_file` if the user changes their mind
