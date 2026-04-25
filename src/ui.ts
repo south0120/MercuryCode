@@ -169,6 +169,16 @@ export const ui = {
     console.log(chalk.cyan("● ") + text);
   },
 
+  assistantOpen() {
+    process.stdout.write(chalk.cyan("● "));
+  },
+  assistantWrite(chunk: string) {
+    process.stdout.write(chunk);
+  },
+  assistantClose() {
+    process.stdout.write("\n");
+  },
+
   toolCall(name: string, args: Record<string, unknown>) {
     const meta = metaFor(name);
     const verb = meta.color(meta.verb.padEnd(6));

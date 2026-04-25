@@ -33,6 +33,7 @@ export interface CliFlags {
   mcp: boolean;
   editorModel: boolean;
   autoInit: boolean;
+  stream: boolean;
 }
 
 const VERSION = "0.1.0";
@@ -59,6 +60,10 @@ export async function runCli(argv: string[]): Promise<void> {
     .option(
       "--no-auto-init",
       "skip auto-creating .mcode/ for this run",
+    )
+    .option(
+      "--no-stream",
+      "disable streaming output (wait for full response)",
     )
     .allowExcessArguments(false);
 
@@ -136,6 +141,7 @@ export async function runCli(argv: string[]): Promise<void> {
     skillsCatalog: skillsCatalog(skills),
     pluginCommandsDirs: pluginCommandsDirs(plugins),
     pluginHookFiles: pluginHookFiles(plugins),
+    stream: opts.stream !== false,
   };
 
   let prompt = "";

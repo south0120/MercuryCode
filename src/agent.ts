@@ -1,6 +1,10 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { MercuryClient, type ChatMessage } from "./client.js";
+import {
+  MercuryClient,
+  type ChatMessage,
+  type ToolCall,
+} from "./client.js";
 import { selectTools, toToolSchemas, toolByName, type Tool } from "./tools/index.js";
 import { buildSystemPrompt } from "./memory.js";
 import { ui } from "./ui.js";
@@ -21,6 +25,7 @@ export interface AgentOptions {
   skillsCatalog?: string;
   pluginCommandsDirs?: string[];
   pluginHookFiles?: string[];
+  stream?: boolean;
 }
 
 export interface AgentSession {
@@ -86,25 +91,102 @@ function persist(session: AgentSession) {
   );
 }
 
+async function runNonStreaming(
+  session: AgentSession,
+  schemas: ReturnType<typeof toToolSchemas>,
+): Promise<ChatMessage> {
+  const res = await session.options.client.chat({
+    model: session.options.model,
+    messages: session.messages,
+    tools: schemas,
+    tool_choice: "auto",
+  });
+  if (res.usage) {
+    addUsage(session.usage, res.usage.prompt_tokens, res.usage.completion_tokens);
+  }
+  const msg = res.choices[0].message;
+  if (msg.content && (!msg.tool_calls || msg.tool_calls.length === 0)) {
+    ui.assistant(msg.content);
+  }
+  return msg;
+}
+
+async function runStreaming(
+  session: AgentSession,
+  schemas: ReturnType<typeof toToolSchemas>,
+): Promise<ChatMessage> {
+  const stream = session.options.client.chatStream({
+    model: session.options.model,
+    messages: session.messages,
+    tools: schemas,
+    tool_choice: "auto",
+  });
+
+  let opened = false;
+  let content = "";
+  // tool_calls accumulated by index
+  const tcByIndex: Map<number, ToolCall> = new Map();
+
+  for await (const chunk of stream) {
+    if (chunk.usage) {
+      addUsage(session.usage, chunk.usage.prompt_tokens, chunk.usage.completion_tokens);
+    }
+    const choice = chunk.choices?.[0];
+    if (!choice) continue;
+    const delta = choice.delta;
+
+    if (delta.content) {
+      if (!opened) {
+        ui.assistantOpen();
+        opened = true;
+      }
+      ui.assistantWrite(delta.content);
+      content += delta.content;
+    }
+
+    if (delta.tool_calls) {
+      for (const tc of delta.tool_calls) {
+        const idx = tc.index;
+        let cur = tcByIndex.get(idx);
+        if (!cur) {
+          cur = {
+            id: tc.id ?? "",
+            type: "function",
+            function: { name: "", arguments: "" },
+          };
+          tcByIndex.set(idx, cur);
+        }
+        if (tc.id) cur.id = tc.id;
+        if (tc.function?.name) cur.function.name += tc.function.name;
+        if (tc.function?.arguments) cur.function.arguments += tc.function.arguments;
+      }
+    }
+  }
+
+  if (opened) ui.assistantClose();
+
+  const tool_calls = [...tcByIndex.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, v]) => v);
+
+  return {
+    role: "assistant",
+    content: content || null,
+    tool_calls: tool_calls.length ? tool_calls : undefined,
+  };
+}
+
 export async function runTurn(session: AgentSession, userPrompt: string): Promise<void> {
   session.messages.push({ role: "user", content: userPrompt });
   const schemas = toToolSchemas(session.tools);
 
   for (let turn = 0; turn < session.options.maxTurns; turn++) {
-    const res = await session.options.client.chat({
-      model: session.options.model,
-      messages: session.messages,
-      tools: schemas,
-      tool_choice: "auto",
-    });
-    if (res.usage) {
-      addUsage(session.usage, res.usage.prompt_tokens, res.usage.completion_tokens);
-    }
-    const msg = res.choices[0].message;
+    const msg = session.options.stream === false
+      ? await runNonStreaming(session, schemas)
+      : await runStreaming(session, schemas);
     session.messages.push(msg);
 
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
-      ui.assistant(msg.content);
       persist(session);
       return;
     }
