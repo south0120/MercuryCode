@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { MarkdownStream } from "./markdown.js";
 
 const ART = `
   ███╗   ███╗ ██████╗ ██████╗ ██████╗ ███████╗
@@ -39,6 +40,8 @@ function visualLength(s: string): number {
   }
   return n;
 }
+
+let activeMd: MarkdownStream | null = null;
 
 function rule(label?: string, color: (s: string) => string = chalk.gray): string {
   const w = termWidth();
@@ -166,17 +169,31 @@ export const ui = {
 
   assistant(text: string | null) {
     if (!text) return;
-    console.log(chalk.cyan("● ") + text);
+    process.stdout.write(chalk.cyan("● "));
+    const md = new MarkdownStream();
+    md.write(text);
+    if (!text.endsWith("\n")) process.stdout.write("\n");
+    md.end();
   },
 
+  // Streaming assistant output. The MarkdownStream renders complete lines as
+  // they arrive (token-buffered until a newline). Long unterminated lines stay
+  // buffered until close.
   assistantOpen() {
     process.stdout.write(chalk.cyan("● "));
+    activeMd = new MarkdownStream();
   },
   assistantWrite(chunk: string) {
-    process.stdout.write(chunk);
+    if (activeMd) activeMd.write(chunk);
+    else process.stdout.write(chunk);
   },
   assistantClose() {
-    process.stdout.write("\n");
+    if (activeMd) {
+      activeMd.end();
+      activeMd = null;
+    } else {
+      process.stdout.write("\n");
+    }
   },
 
   toolCall(name: string, args: Record<string, unknown>) {

@@ -185,6 +185,34 @@ Configure an MCP server in `.mcode/mcp.json` (or `~/.mcode/mcp.json`). It launch
 
 Disable with `--no-mcp`; list connected tools via `/mcp`.
 
+#### Popular MCP servers
+
+Drop these into `~/.mcode/mcp.json` (global) or `.mcode/mcp.json` (per project). Sample at `examples/.mcode/mcp.json`.
+
+| Server | Use case | Setup |
+|---|---|---|
+| **brave-search** | Web search via Brave Search API | Get a free key at <https://brave.com/search/api>, set `BRAVE_API_KEY` |
+| **filesystem** | Sandboxed file operations on a chosen dir | No key needed, pass the dir as last arg |
+| **fetch** | HTTP GET arbitrary URLs (returns text/markdown) | Requires `uv` (`pip install uv`) — uses `uvx mcp-server-fetch` |
+| **github** | Read repos, issues, PRs from GitHub | Set `GITHUB_PERSONAL_ACCESS_TOKEN` |
+| **slack / postgres / sqlite / time** | Various | See <https://github.com/modelcontextprotocol/servers> |
+
+Example for Brave web search:
+
+```json
+{
+  "mcpServers": {
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": { "BRAVE_API_KEY": "sk_..." }
+    }
+  }
+}
+```
+
+After this, mcode auto-registers `mcp__brave_search__brave_web_search` and the agent can search the web mid-conversation.
+
 ## Tools
 
 | Tool | Backed by | Approval |

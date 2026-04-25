@@ -30,6 +30,8 @@ The goal: make mcode comfortable enough to be your default for greenfield scaffo
 - ✅ **In-session model switching** — `/model` picker probes account-accessible Mercury models
 - ✅ **Multi-line input** — Ctrl+Enter / Ctrl+J / Option+Enter inserts newline; multi-line render
 - ✅ **Did-you-mean for unknown slash commands** — Levenshtein-based hint
+- ✅ **Markdown rendering** — streaming MD → ANSI (headers, bold/italic, code blocks, links, lists, blockquotes)
+- ✅ **Documented popular MCP servers** — brave-search, fetch, github, filesystem with copy-paste config
 - **Multi-line paste detection** — auto-handle pasted multi-line content
 - **Tab completion** — file path completion inside prompts (when input contains a `/path/like/this`)
 - **Improved diff in approval** — side-by-side or syntax-highlighted diff for `edit_file`, with line-anchor context
