@@ -2,7 +2,7 @@
 
 A coding agent CLI powered by Mercury 2 — Claude Code / Codex–style experience built on Inception Labs' fast diffusion LLM `mercury-2`.
 
-> 日本語版: [README.ja.md](./README.ja.md)
+> [Landing page](https://south0120.github.io/MercuryCode/) · [日本語版 README](./README.ja.md)
 
 ## Quickstart
 
