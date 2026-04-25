@@ -15,7 +15,7 @@ export function makeFimCompleteTool(client: MercuryClient): Tool {
   return {
     name: "fim_complete",
     description:
-      "Fill-in-middle (FIM) completion using Mercury Edit 2. Inserts generated code at a specified line/column inside an existing file. Fast and focused — best for autocomplete-style insertions where the surrounding code is the strongest signal. Returns the generated text without writing unless `apply` is true.",
+      "Fill-in-Middle code completion at a specific line:column. Powered by Mercury Edit 2 — typically <500ms. Use for cursor-position completion where surrounding code is the strongest signal (e.g., finishing a recursive call, completing an import list, expanding a partially-typed expression). Returns generated text by default; pass apply=true to write it back into the file. Not for structural changes — use edit_with_ai for those.",
     requiresApproval: true,
     parameters: {
       type: "object",

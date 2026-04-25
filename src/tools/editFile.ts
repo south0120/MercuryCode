@@ -7,7 +7,7 @@ import { unifiedDiff } from "../diff.js";
 export const editFileTool: Tool = {
   name: "edit_file",
   description:
-    "Replace one occurrence of old_string with new_string in a file. old_string must match exactly and uniquely.",
+    "Deterministic exact-string replacement: find one unique occurrence of old_string and replace with new_string. Use ONLY when both strings are exactly known and a literal match is intended (e.g., bumping a version constant, swapping a single import). For refactors, renames-across-file, JSDoc additions, structural rewrites, or any change you'd describe in natural language, prefer edit_with_ai.",
   requiresApproval: true,
   parameters: {
     type: "object",

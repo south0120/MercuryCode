@@ -19,7 +19,7 @@ export function makeEditWithAiTool(client: MercuryClient): Tool {
   return {
     name: "edit_with_ai",
     description:
-      "Apply a natural-language edit instruction to a file using Mercury Edit 2. Use when the change is structural (refactor, rename, restructure) and a deterministic search/replace doesn't fit. Shows a diff of the proposed change for approval.",
+      "PREFERRED for single-file structural changes (renames across file, JSDoc additions, async/await conversion, early returns, helper extraction, idiomatic refactors). Powered by Mercury Edit 2 — typically 300–500ms, more reliable than chained edit_file calls for non-mechanical changes. Pass the file path and a clear, specific instruction (include constraints like 'preserve error handling' if relevant). Returns a unified diff for approval. Use edit_file only for exact-string deterministic replacements where you already know both halves.",
     requiresApproval: true,
     parameters: {
       type: "object",
