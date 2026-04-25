@@ -2,6 +2,7 @@ const API_BASE = "https://api.inceptionlabs.ai/v1";
 const CHAT_URL = `${API_BASE}/chat/completions`;
 const FIM_URL = `${API_BASE}/fim/completions`;
 const EDIT_URL = `${API_BASE}/edit/completions`;
+const MODELS_URL = `${API_BASE}/models`;
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -50,6 +51,20 @@ export interface ChatResponse {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+  };
+}
+
+// Model catalog
+export interface ModelInfo {
+  id: string;
+  name?: string;
+  description?: string;
+  context_length?: number;
+  max_output_length?: number;
+  supported_features?: string[];
+  pricing?: {
+    prompt?: string;
+    completion?: string;
   };
 }
 
@@ -125,6 +140,18 @@ export class MercuryClient {
 
   chat(req: ChatRequest): Promise<ChatResponse> {
     return this.post<ChatResponse>(CHAT_URL, req);
+  }
+
+  async listModels(): Promise<ModelInfo[]> {
+    const res = await fetch(MODELS_URL, {
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Mercury API ${res.status} (models): ${text}`);
+    }
+    const json = (await res.json()) as { data?: ModelInfo[] };
+    return json.data ?? [];
   }
 
   /**

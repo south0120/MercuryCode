@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
+import prompts from "prompts";
 import { createSession, runTurn, rebuildSystem, type AgentOptions } from "./agent.js";
 import { SESSIONS_DIR } from "./config.js";
 import { ui } from "./ui.js";
@@ -258,6 +259,67 @@ function makeBuiltins(): BuiltinCommand[] {
       description: "alias for /cost",
       async run({ session }) {
         console.log(usageSummary(session.usage));
+        return "continue";
+      },
+    },
+    {
+      name: "model",
+      description: "switch active model (lists tools-capable models from API)",
+      async run({ arg, session, options }) {
+        // Direct set: /model <id>
+        if (arg) {
+          options.model = arg;
+          ui.info(`✓ model: ${chalk.cyan(arg)}`);
+          return "continue";
+        }
+        // Interactive picker: fetch catalog, filter by tools support.
+        let models;
+        try {
+          models = await session.options.client.listModels();
+        } catch (e) {
+          ui.error((e as Error).message);
+          return "continue";
+        }
+        const choices = models.map((m) => {
+          const supportsTools = (m.supported_features ?? []).includes("tools");
+          const ctx = m.context_length ? `${Math.round(m.context_length / 1000)}K` : "";
+          const labelTag = supportsTools ? chalk.green("● tools") : chalk.gray("○ no-tools");
+          const current = m.id === options.model ? chalk.bold.yellow(" (current)") : "";
+          return {
+            title: `${chalk.cyan(m.id.padEnd(20))} ${labelTag}  ${chalk.gray(ctx.padStart(4) + "  " + (m.name ?? ""))}${current}`,
+            value: m.id,
+            disabled: !supportsTools,
+          };
+        });
+        const initial = Math.max(0, models.findIndex((m) => m.id === options.model));
+        const { picked } = await prompts({
+          type: "select",
+          name: "picked",
+          message: chalk.bold("Select model (only tools-capable are selectable)"),
+          choices,
+          initial,
+        });
+        if (!picked) return "continue";
+        options.model = String(picked);
+        ui.info(`✓ model switched to ${chalk.cyan(options.model)}`);
+        return "continue";
+      },
+    },
+    {
+      name: "models",
+      description: "list available models from the Mercury API",
+      async run({ session }) {
+        try {
+          const models = await session.options.client.listModels();
+          for (const m of models) {
+            const tools = (m.supported_features ?? []).includes("tools") ? chalk.green("✓ tools") : chalk.gray("  no-tools");
+            const ctx = m.context_length ? chalk.gray(`${Math.round(m.context_length / 1000)}K`) : "";
+            const cur = m.id === session.options.model ? chalk.bold.yellow(" ← current") : "";
+            console.log(`  ${chalk.cyan(m.id.padEnd(18))} ${tools}  ${ctx.padStart(6)}  ${chalk.gray(m.name ?? "")}${cur}`);
+          }
+        } catch (e) {
+          ui.error((e as Error).message);
+        }
         return "continue";
       },
     },
