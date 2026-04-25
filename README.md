@@ -95,6 +95,8 @@ When a line starts with `/` alone, a fuzzy-search picker opens.
 
 Multi-line input: end a line with `\` to continue on the next line.
 
+Inline file references: write `@path/to/file` in any prompt and mcode will read the file and inline its contents into the message before sending. Skipped silently if the path doesn't exist or is binary/oversized.
+
 ## Custom commands
 
 Place a Markdown file under `.mcode/commands/<name>.md` or `~/.mcode/commands/<name>.md` and it will be registered automatically as `/name`.

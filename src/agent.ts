@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import {
   MercuryClient,
   type ChatMessage,
@@ -35,6 +35,8 @@ export interface AgentSession {
   messages: ChatMessage[];
   usage: UsageTotals;
   hooks: HookConfig;
+  // Cached model accessibility probe results (populated lazily by /model command)
+  modelProbe?: Map<string, boolean>;
 }
 
 export function createSession(options: AgentOptions): AgentSession {
@@ -176,8 +178,37 @@ async function runStreaming(
   };
 }
 
+/**
+ * Expand `@path/to/file` mentions in the prompt by inlining file contents.
+ * Only paths that resolve to existing readable files (≤256KB) are expanded.
+ * Anything else (decorators, email handles, missing paths) passes through unchanged.
+ */
+function expandFileMentions(prompt: string): { text: string; expanded: string[] } {
+  const expanded: string[] = [];
+  const out = prompt.replace(/@([\w./@~-]+)/g, (raw, p1: string) => {
+    // Strip a leading ~/ to homedir
+    const candidate = p1.startsWith("~/") ? p1.replace(/^~/, process.env.HOME ?? "") : p1;
+    const abs = resolve(process.cwd(), candidate);
+    try {
+      const st = statSync(abs);
+      if (!st.isFile()) return raw;
+      if (st.size > 256_000) return raw;
+      const body = readFileSync(abs, "utf8");
+      expanded.push(p1);
+      return `\n\n[file ${p1}]\n\`\`\`\n${body}\n\`\`\`\n`;
+    } catch {
+      return raw;
+    }
+  });
+  return { text: out, expanded };
+}
+
 export async function runTurn(session: AgentSession, userPrompt: string): Promise<void> {
-  session.messages.push({ role: "user", content: userPrompt });
+  const { text: expandedPrompt, expanded } = expandFileMentions(userPrompt);
+  if (expanded.length) {
+    ui.info(`@-expanded: ${expanded.map((p) => "@" + p).join(", ")}`);
+  }
+  session.messages.push({ role: "user", content: expandedPrompt });
   const schemas = toToolSchemas(session.tools);
 
   for (let turn = 0; turn < session.options.maxTurns; turn++) {

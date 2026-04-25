@@ -154,6 +154,20 @@ export class MercuryClient {
     return json.data ?? [];
   }
 
+  /** Returns true if this account can actually call the model (one-token probe). */
+  async probeModel(modelId: string): Promise<boolean> {
+    try {
+      await this.chat({
+        model: modelId,
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 1,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Stream a chat completion as Server-Sent Events.
    * Yields each delta chunk; consumer accumulates content/tool_calls.

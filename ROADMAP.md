@@ -26,10 +26,10 @@ Status as of v0.3. Items marked ✅ are shipped. Order within each phase is sugg
 The goal: make mcode comfortable enough to be your default for greenfield scaffolding.
 
 - ✅ **Streaming output** — render assistant tokens incrementally as they arrive (SSE)
-- **`mcode init`** — scaffold `.mcode/` (commands/, skills/, hooks.json, mcp.json) in the current directory with sensible defaults
+- ✅ **Inline file references** — `@path/to/file` in prompt auto-inlines file contents
+- ✅ **In-session model switching** — `/model` picker probes account-accessible Mercury models
 - **Multi-line input** — `Ctrl+J` newline, multi-line paste detection, render input box growing
 - **Tab completion** — file path completion inside prompts (when input contains a `/path/like/this`)
-- **Inline file references** — `@path/to/file` in prompt auto-expands to a `read_file` call before the turn
 - **Improved diff in approval** — side-by-side or syntax-highlighted diff for `edit_file`, with line-anchor context
 - **`/undo`** — revert the last `write_file` / `edit_file` if the user changes their mind
 - **Auto-resume** — `mcode` with no args in a directory that has a recent session offers to resume

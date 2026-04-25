@@ -264,7 +264,7 @@ function makeBuiltins(): BuiltinCommand[] {
     },
     {
       name: "model",
-      description: "switch active model (lists tools-capable models from API)",
+      description: "switch active model (only models accessible to your account)",
       async run({ arg, session, options }) {
         // Direct set: /model <id>
         if (arg) {
@@ -272,7 +272,6 @@ function makeBuiltins(): BuiltinCommand[] {
           ui.info(`✓ model: ${chalk.cyan(arg)}`);
           return "continue";
         }
-        // Interactive picker: fetch catalog, filter by tools support.
         let models;
         try {
           models = await session.options.client.listModels();
@@ -280,22 +279,39 @@ function makeBuiltins(): BuiltinCommand[] {
           ui.error((e as Error).message);
           return "continue";
         }
-        const choices = models.map((m) => {
-          const supportsTools = (m.supported_features ?? []).includes("tools");
-          const ctx = m.context_length ? `${Math.round(m.context_length / 1000)}K` : "";
-          const labelTag = supportsTools ? chalk.green("● tools") : chalk.gray("○ no-tools");
+        // Filter: only tools-capable models qualify as agent main models.
+        const toolsCapable = models.filter((m) => (m.supported_features ?? []).includes("tools"));
+
+        // Probe accessibility (lazy, cached for the session).
+        if (!session.modelProbe) session.modelProbe = new Map();
+        const toProbe = toolsCapable.filter((m) => !session.modelProbe!.has(m.id));
+        if (toProbe.length) {
+          ui.info(`probing ${toProbe.length} model(s)…`);
+          await Promise.all(
+            toProbe.map(async (m) => {
+              const ok = await session.options.client.probeModel(m.id);
+              session.modelProbe!.set(m.id, ok);
+            }),
+          );
+        }
+        const accessible = toolsCapable.filter((m) => session.modelProbe!.get(m.id));
+        if (!accessible.length) {
+          ui.error("no models accessible with this API key");
+          return "continue";
+        }
+        const choices = accessible.map((m) => {
+          const ctx = m.context_length ? `${Math.round(m.context_length / 1000)}K ctx` : "";
           const current = m.id === options.model ? chalk.bold.yellow(" (current)") : "";
           return {
-            title: `${chalk.cyan(m.id.padEnd(20))} ${labelTag}  ${chalk.gray(ctx.padStart(4) + "  " + (m.name ?? ""))}${current}`,
+            title: `${chalk.cyan(m.id.padEnd(18))} ${chalk.gray(ctx.padEnd(8))} ${chalk.gray(m.name ?? "")}${current}`,
             value: m.id,
-            disabled: !supportsTools,
           };
         });
-        const initial = Math.max(0, models.findIndex((m) => m.id === options.model));
+        const initial = Math.max(0, accessible.findIndex((m) => m.id === options.model));
         const { picked } = await prompts({
           type: "select",
           name: "picked",
-          message: chalk.bold("Select model (only tools-capable are selectable)"),
+          message: chalk.bold("Select model"),
           choices,
           initial,
         });
@@ -307,15 +323,30 @@ function makeBuiltins(): BuiltinCommand[] {
     },
     {
       name: "models",
-      description: "list available models from the Mercury API",
+      description: "list models accessible to your API key (probes each)",
       async run({ session }) {
         try {
           const models = await session.options.client.listModels();
+          if (!session.modelProbe) session.modelProbe = new Map();
+          const toProbe = models.filter((m) => !session.modelProbe!.has(m.id));
+          if (toProbe.length) {
+            ui.info(`probing ${toProbe.length} model(s)…`);
+            await Promise.all(
+              toProbe.map(async (m) => {
+                const ok = await session.options.client.probeModel(m.id);
+                session.modelProbe!.set(m.id, ok);
+              }),
+            );
+          }
           for (const m of models) {
-            const tools = (m.supported_features ?? []).includes("tools") ? chalk.green("✓ tools") : chalk.gray("  no-tools");
+            const tools = (m.supported_features ?? []).includes("tools");
+            const accessible = session.modelProbe!.get(m.id);
+            const tag = accessible
+              ? (tools ? chalk.green("● accessible · tools") : chalk.yellow("● accessible · no-tools"))
+              : chalk.gray("○ not accessible");
             const ctx = m.context_length ? chalk.gray(`${Math.round(m.context_length / 1000)}K`) : "";
             const cur = m.id === session.options.model ? chalk.bold.yellow(" ← current") : "";
-            console.log(`  ${chalk.cyan(m.id.padEnd(18))} ${tools}  ${ctx.padStart(6)}  ${chalk.gray(m.name ?? "")}${cur}`);
+            console.log(`  ${chalk.cyan(m.id.padEnd(18))} ${tag.padEnd(28)}  ${ctx.padStart(6)}  ${chalk.gray(m.name ?? "")}${cur}`);
           }
         } catch (e) {
           ui.error((e as Error).message);
