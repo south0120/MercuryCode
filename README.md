@@ -2,6 +2,19 @@
 
 Mercury 2 製のコーディングエージェント CLI。Claude Code / Codex 風の体験を、Inception Labs の高速 dLLM `mercury-2` で。
 
+## Quickstart
+
+```bash
+# 1. API キー設定（または初回起動時の対話入力で ~/.mcode/config.json に保存）
+export INCEPTION_API_KEY=sk_...
+
+# 2. ワンショットで動作確認（書込み/実行を自動承認）
+mcode -y "hello.py に 'Hello, world!' を出力する Python スクリプトを作って実行確認まで"
+
+# 3. 対話モード（REPL）
+mcode
+```
+
 ## Install
 
 ```bash
