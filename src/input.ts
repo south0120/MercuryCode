@@ -1,6 +1,8 @@
 import { emitKeypressEvents } from "node:readline";
-import { readdirSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, resolve as resolvePath } from "node:path";
+import { readdirSync, statSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
+import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
 import chalk from "chalk";
 
 export interface SlashCommand {
@@ -79,8 +81,57 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
     let historyIdx = history.length; // pointing past end == "no recall"
     let savedDraft = ""; // current input saved when navigating history
 
+    // Ctrl+R reverse-search overlay state. When non-null, render swaps to a
+    // search line and key handling treats most chars as query input.
+    let search: { query: string; matchIdx: number } | null = null;
+
     const stdin = process.stdin;
     const stdout = process.stdout;
+
+    function findSearchMatch(query: string, startFrom: number): number {
+      // Walk newest-first (history end → start), return -1 if no match.
+      for (let i = startFrom; i >= 0; i--) {
+        if (history[i].toLowerCase().includes(query.toLowerCase())) return i;
+      }
+      return -1;
+    }
+
+    async function openExternalEditor(): Promise<void> {
+      const editor = process.env.EDITOR || process.env.VISUAL || "nano";
+      const tmp = join(tmpdir(), `mcode-prompt-${Date.now()}.md`);
+      try {
+        writeFileSync(tmp, buffer, "utf8");
+      } catch {
+        return;
+      }
+      // Suspend our raw-mode rendering, hand the terminal to the editor.
+      stdin.setRawMode?.(false);
+      stdin.pause();
+      stdout.write("\x1b[?25h"); // show cursor
+      try {
+        await new Promise<void>((res, rej) => {
+          const child = spawn(editor, [tmp], { stdio: "inherit" });
+          child.on("close", () => res());
+          child.on("error", rej);
+        });
+      } catch {}
+      try {
+        const updated = readFileSync(tmp, "utf8");
+        buffer = updated.replace(/\n+$/, "");
+        cursor = buffer.length;
+      } catch {}
+      try {
+        unlinkSync(tmp);
+      } catch {}
+      stdin.setRawMode?.(true);
+      stdin.resume();
+      stdout.write("\x1b[?25l"); // hide cursor
+      // Force full re-render on a new line so we don't overlap editor's last frame.
+      renderedLines = 0;
+      cursorRowInBlock = 0;
+      stdout.write("\n");
+      render(true);
+    }
 
     function suggestions(): SlashCommand[] {
       if (!buffer.startsWith("/")) return [];
@@ -210,6 +261,25 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
     function render(initial = false) {
       if (!initial) clearRendered();
 
+      // Reverse-search overlay replaces the normal input frame.
+      if (search) {
+        const matchText = search.matchIdx >= 0 ? history[search.matchIdx] : "";
+        const label =
+          chalk.cyan("(reverse-i-search)") +
+          chalk.gray("`") +
+          chalk.bold(search.query || " ") +
+          chalk.gray("`: ");
+        const out = [rule(), label + matchText, rule()].join("\r\n");
+        process.stdout.write(out);
+        const cursorCol = visualWidth(stripAnsi(label) + matchText);
+        process.stdout.write("\r");
+        process.stdout.write(`\x1b[1A`);
+        if (cursorCol > 0) process.stdout.write(`\x1b[${cursorCol}C`);
+        renderedLines = 3;
+        cursorRowInBlock = 1;
+        return;
+      }
+
       const w = termWidth();
       const sugs = suggestions();
       const inputLines = buffer.split("\n");
@@ -301,9 +371,76 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
       key: { name?: string; ctrl?: boolean; meta?: boolean; shift?: boolean; sequence?: string },
     ) => {
       if (!key) return;
+
+      // ── Reverse-search overlay key handling ─────────────────────────────
+      if (search) {
+        if (key.ctrl && key.name === "c") {
+          search = null;
+          render();
+          return;
+        }
+        if (key.name === "return") {
+          // Accept and submit
+          if (search.matchIdx >= 0) {
+            buffer = history[search.matchIdx];
+            cursor = buffer.length;
+          }
+          search = null;
+          done(buffer);
+          return;
+        }
+        if (key.name === "escape" || key.name === "tab") {
+          // Accept and continue editing
+          if (search.matchIdx >= 0) {
+            buffer = history[search.matchIdx];
+            cursor = buffer.length;
+          }
+          search = null;
+          render();
+          return;
+        }
+        if (key.ctrl && key.name === "r") {
+          // cycle to next older match
+          if (search.matchIdx > 0) {
+            const next = findSearchMatch(search.query, search.matchIdx - 1);
+            if (next >= 0) search.matchIdx = next;
+          }
+          render();
+          return;
+        }
+        if (key.name === "backspace") {
+          search.query = search.query.slice(0, -1);
+          search.matchIdx = findSearchMatch(search.query, history.length - 1);
+          render();
+          return;
+        }
+        const seq = ch ?? key.sequence ?? "";
+        if (seq && !key.ctrl && !key.meta && seq.length >= 1) {
+          const printable = Array.from(seq).filter((c) => c.codePointAt(0)! >= 0x20).join("");
+          if (printable) {
+            search.query += printable;
+            search.matchIdx = findSearchMatch(search.query, history.length - 1);
+            render();
+          }
+        }
+        return;
+      }
+
+      // ── Normal mode ──────────────────────────────────────────────────────
       // Ctrl-C / Ctrl-D on empty buffer → cancel
       if ((key.ctrl && key.name === "c") || (key.ctrl && key.name === "d" && !buffer)) {
         done(undefined);
+        return;
+      }
+      // Ctrl+R: enter reverse-search mode
+      if (key.ctrl && key.name === "r") {
+        search = { query: "", matchIdx: history.length - 1 };
+        render();
+        return;
+      }
+      // Ctrl+G: open the current buffer in $EDITOR (async, non-blocking handler)
+      if (key.ctrl && key.name === "g") {
+        void openExternalEditor();
         return;
       }
       // Newline insertion: Ctrl+Enter, Ctrl+J, Option+Enter, Shift+Enter (terminal-dependent)

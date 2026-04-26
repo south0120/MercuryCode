@@ -83,6 +83,17 @@ export async function runRepl(options: AgentOptions): Promise<void> {
     if (!trimmed) continue;
     if (history[history.length - 1] !== trimmed) history.push(trimmed);
 
+    // `!` shell mode — run the command directly without invoking the agent.
+    // Output is streamed to the terminal; the conversation is not modified
+    // unless the user wants the AI to see it (use a normal prompt for that).
+    if (trimmed.startsWith("!")) {
+      const cmd = trimmed.slice(1).trim();
+      if (!cmd) continue;
+      ui.info(chalk.gray(`$ ${cmd}`));
+      await runShellAndPrint(cmd);
+      continue;
+    }
+
     if (trimmed.startsWith("/")) {
       const [head, ...rest] = trimmed.slice(1).split(/\s+/);
       const arg = rest.join(" ").trim();
