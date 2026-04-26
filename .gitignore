@@ -4,3 +4,5 @@ dist/
 .env.local
 *.log
 .DS_Store
+lp/.preview/
+lp/assets/.DS_Store
