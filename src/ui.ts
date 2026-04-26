@@ -10,6 +10,51 @@ const ART = `
   ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝
 `;
 
+// Mercury-themed water-cyan gradient stops: pale cyan → cyan → deeper water blue.
+// Each block char is colored according to its horizontal position in the line.
+const GRADIENT_STOPS: Array<[number, [number, number, number]]> = [
+  [0.0, [220, 248, 255]],
+  [0.4, [0, 220, 255]],
+  [0.7, [80, 200, 255]],
+  [1.0, [88, 140, 255]],
+];
+
+function lerpGradient(t: number): [number, number, number] {
+  const u = Math.max(0, Math.min(1, t));
+  for (let i = 1; i < GRADIENT_STOPS.length; i++) {
+    const [t1, c1] = GRADIENT_STOPS[i];
+    if (u <= t1) {
+      const [t0, c0] = GRADIENT_STOPS[i - 1];
+      const k = (u - t0) / (t1 - t0 || 1);
+      return [
+        Math.round(c0[0] + (c1[0] - c0[0]) * k),
+        Math.round(c0[1] + (c1[1] - c0[1]) * k),
+        Math.round(c0[2] + (c1[2] - c0[2]) * k),
+      ];
+    }
+  }
+  return GRADIENT_STOPS[GRADIENT_STOPS.length - 1][1];
+}
+
+function gradientArt(art: string): string {
+  const lines = art.split("\n");
+  const maxLen = Math.max(...lines.map((l) => l.length));
+  return lines
+    .map((line) => {
+      if (!line.trim()) return line;
+      const chars = [...line];
+      return chars
+        .map((ch, i) => {
+          if (ch === " ") return ch;
+          const t = maxLen > 1 ? i / (maxLen - 1) : 0;
+          const [r, g, b] = lerpGradient(t);
+          return chalk.rgb(r, g, b)(ch);
+        })
+        .join("");
+    })
+    .join("\n");
+}
+
 function termWidth(): number {
   const w = process.stdout.columns || 80;
   return Math.max(20, w);
@@ -148,7 +193,7 @@ function formatToolResult(name: string, result: unknown): string {
 
 export const ui = {
   banner(meta: { model: string; cwd: string; yolo: boolean; readOnly: boolean }) {
-    console.log(chalk.cyan(ART));
+    console.log(gradientArt(ART));
     console.log(
       chalk.bold("  Mercury 2 Coding Agent") +
         chalk.gray("  v0.1.0  ·  Inception Labs"),
