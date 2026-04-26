@@ -751,6 +751,67 @@ function humanAge(d: Date): string {
   return `${Math.round(sec / 86400)}d ago`;
 }
 
+// Copy text to the system clipboard via the platform-native helper.
+async function copyToClipboard(text: string): Promise<void> {
+  const tools = process.platform === "darwin"
+    ? [["pbcopy", []]]
+    : process.platform === "win32"
+      ? [["clip", []]]
+      : [
+          ["wl-copy", []],
+          ["xclip", ["-selection", "clipboard"]],
+          ["xsel", ["--clipboard", "--input"]],
+        ];
+  for (const [cmd, args] of tools as Array<[string, string[]]>) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(cmd, args, { stdio: ["pipe", "ignore", "ignore"] });
+        child.on("error", reject);
+        child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`))));
+        child.stdin.write(text);
+        child.stdin.end();
+      });
+      return;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error("no clipboard helper available (install pbcopy / xclip / wl-copy)");
+}
+
+// Run a shell command and stream its output to the user's terminal directly,
+// optionally with light syntax highlighting (currently: unified-diff coloring).
+async function runShellAndPrint(cmd: string, opts: { color?: "diff" | "none" } = {}): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn("bash", ["-lc", cmd], { stdio: ["ignore", "pipe", "pipe"] });
+    let buf = "";
+    const flushLine = (line: string) => {
+      if (opts.color === "diff") {
+        if (line.startsWith("+") && !line.startsWith("+++")) process.stdout.write(chalk.green(line) + "\n");
+        else if (line.startsWith("-") && !line.startsWith("---")) process.stdout.write(chalk.red(line) + "\n");
+        else if (line.startsWith("@@")) process.stdout.write(chalk.cyan(line) + "\n");
+        else if (line.startsWith("diff ") || line.startsWith("index ")) process.stdout.write(chalk.bold(line) + "\n");
+        else process.stdout.write(line + "\n");
+      } else process.stdout.write(line + "\n");
+    };
+    const onData = (d: Buffer) => {
+      buf += d.toString();
+      let idx;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        flushLine(buf.slice(0, idx));
+        buf = buf.slice(idx + 1);
+      }
+    };
+    child.stdout.on("data", onData);
+    child.stderr.on("data", (d) => process.stderr.write(d));
+    child.on("close", (code) => {
+      if (buf) flushLine(buf);
+      resolve(code ?? -1);
+    });
+    child.on("error", () => resolve(-1));
+  });
+}
+
 // Run the auto-detected build/test command for the current project.
 async function runProjectCommand(kind: "test" | "build"): Promise<void> {
   const info = detectProjectKind();
@@ -1338,6 +1399,128 @@ function makeBuiltins(): BuiltinCommand[] {
         const path = appendProjectLearning(arg);
         rebuildSystem(session);
         ui.info(`learned → ${path}`);
+        return "continue";
+      },
+    },
+    {
+      name: "copy",
+      description: "copy the Nth-latest assistant response to the clipboard (default: 1)",
+      async run({ arg, session }) {
+        const n = Math.max(1, parseInt(arg.trim() || "1", 10) || 1);
+        const assistantTexts = session.messages
+          .filter((m) => m.role === "assistant" && typeof m.content === "string" && m.content)
+          .map((m) => m.content as string);
+        if (n > assistantTexts.length) {
+          ui.error(`only ${assistantTexts.length} assistant responses in history`);
+          return "continue";
+        }
+        const text = assistantTexts[assistantTexts.length - n];
+        try {
+          await copyToClipboard(text);
+          ui.info(`✓ copied response ${chalk.cyan("#" + n)} (${text.length} chars) to clipboard`);
+        } catch (e) {
+          ui.error("clipboard unavailable: " + (e as Error).message);
+        }
+        return "continue";
+      },
+    },
+    {
+      name: "diff",
+      description: "show git uncommitted changes (working tree vs HEAD)",
+      async run() {
+        await runShellAndPrint("git diff --no-color HEAD", { color: "diff" });
+        return "continue";
+      },
+    },
+    {
+      name: "export",
+      description: "export the current conversation as markdown: /export [filename]",
+      async run({ arg, session }) {
+        const fname = (arg.trim() || `mcode-session-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.md`).trim();
+        const lines: string[] = [`# mcode session export`, ``, `> exported ${new Date().toISOString()}`, ``];
+        for (const m of session.messages) {
+          if (m.role === "system") continue;
+          if (m.role === "user") {
+            lines.push(`## User`, ``, String(m.content ?? ""), ``);
+          } else if (m.role === "assistant") {
+            lines.push(`## Assistant`, ``, String(m.content ?? ""), ``);
+            if (m.tool_calls?.length) {
+              for (const tc of m.tool_calls) {
+                lines.push(`> tool: \`${tc.function.name}\``, ``, "```json", tc.function.arguments, "```", ``);
+              }
+            }
+          } else if (m.role === "tool") {
+            lines.push(`### Tool result (${m.name ?? "?"})`, ``, "```", String(m.content ?? ""), "```", ``);
+          }
+        }
+        writeFileSync(fname, lines.join("\n"));
+        ui.info(`✓ exported ${chalk.cyan(fname)} (${session.messages.length} messages)`);
+        return "continue";
+      },
+    },
+    {
+      name: "compact",
+      description: "compress the conversation by summarizing older turns: /compact [focus]",
+      async run({ arg, session }) {
+        const focus = arg.trim();
+        const KEEP_LAST = 4; // keep the last N user/assistant messages verbatim
+        const transcript = session.messages.filter((m) => m.role === "user" || m.role === "assistant");
+        if (transcript.length <= KEEP_LAST + 2) {
+          ui.info("(history is already short, nothing to compact)");
+          return "continue";
+        }
+        const head = transcript.slice(0, transcript.length - KEEP_LAST);
+        const tail = transcript.slice(transcript.length - KEEP_LAST);
+        const summarizerPrompt = [
+          "Summarize the following conversation concisely as a structured note.",
+          "Preserve key decisions, file paths touched, libraries chosen, and unresolved TODOs.",
+          "Output 200-400 words plain prose. No headings, no markdown bullets at the top level.",
+          focus ? `Focus on: ${focus}` : "",
+          "",
+          "--- conversation ---",
+          ...head.map((m) => `${m.role.toUpperCase()}: ${(m.content ?? "").toString().slice(0, 4000)}`),
+        ].filter(Boolean).join("\n");
+        ui.info("compacting…");
+        const res = await session.options.client.chat({
+          model: session.options.model,
+          messages: [
+            { role: "system", content: "You are a precise meeting-minutes summarizer." },
+            { role: "user", content: summarizerPrompt },
+          ],
+        });
+        const summary = res.choices[0]?.message?.content?.trim() ?? "";
+        if (!summary) {
+          ui.error("compact failed: empty summary");
+          return "continue";
+        }
+        // Replace early conversation with a single synthetic message preserving system prompt.
+        const sys = session.messages.find((m) => m.role === "system");
+        session.messages.length = 0;
+        if (sys) session.messages.push(sys);
+        session.messages.push({
+          role: "user",
+          content: `[Compacted summary of earlier conversation]\n\n${summary}`,
+        });
+        for (const m of tail) session.messages.push(m);
+        ui.info(`✓ compacted ${head.length} turns → 1 summary (${summary.length} chars)`);
+        return "continue";
+      },
+    },
+    {
+      name: "effort",
+      description: "set Mercury reasoning effort: /effort [low|medium|high|auto] (Mercury 2 may ignore)",
+      async run({ arg, options }) {
+        const v = arg.trim();
+        if (!v) {
+          ui.info(`current effort: ${chalk.cyan(options.effort ?? "auto")}`);
+          return "continue";
+        }
+        if (!/^(low|medium|high|max|auto)$/.test(v)) {
+          ui.error("usage: /effort low|medium|high|max|auto");
+          return "continue";
+        }
+        options.effort = v === "auto" ? undefined : v;
+        ui.info(`✓ effort: ${chalk.cyan(options.effort ?? "auto")}`);
         return "continue";
       },
     },

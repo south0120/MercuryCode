@@ -26,6 +26,7 @@ export interface AgentOptions {
   pluginCommandsDirs?: string[];
   pluginHookFiles?: string[];
   stream?: boolean;
+  effort?: string;
 }
 
 export interface AgentSession {
