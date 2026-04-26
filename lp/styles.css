@@ -290,32 +290,27 @@ h1 {
   isolation: isolate;
 }
 
-/* The source image already contains a circular planet with a cyan atmospheric
-   rim on a near-black background. Instead of clipping it into a hard circle,
-   we let it bleed naturally:
-   - mix-blend-mode: screen makes the near-black background blend into the
-     page gradient (only the planet body and rim glow remain visible).
-   - A soft radial mask feathers any residual rectangular edges to transparent.
-   - Stacked drop-shadows give an ambient cyan/magenta halo.
+/* The source image is a PNG with an alpha channel (planet only, transparent
+   background). drop-shadow on a transparent PNG follows the actual silhouette,
+   so the cyan/magenta halo wraps the planet's true outline — no rectangular
+   edges, no compositing tricks needed.
 */
 .planet-figure img {
-  width: 112%;
+  width: 110%;
   max-width: none;
-  margin-inline: -6%;
+  margin-inline: -5%;
   display: block;
-  mix-blend-mode: screen;
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 58%, transparent 92%);
-  mask-image: radial-gradient(circle at 50% 50%, #000 58%, transparent 92%);
   filter:
-    drop-shadow(0 0 64px rgba(0, 255, 255, 0.22))
-    drop-shadow(0 0 140px rgba(255, 0, 212, 0.10));
+    drop-shadow(0 0 28px rgba(0, 255, 255, 0.32))
+    drop-shadow(0 0 80px rgba(0, 255, 255, 0.14))
+    drop-shadow(0 0 160px rgba(255, 0, 212, 0.08));
 }
 
 /* Two faint orbital arcs behind the planet — adds astronomical depth */
 .planet-figure::before {
   content: "";
   position: absolute;
-  inset: 8% -4% -2% 4%;
+  inset: 10% -2% 0% 2%;
   border: 1px solid rgba(0, 255, 255, 0.12);
   border-radius: 50%;
   transform: rotate(-12deg);
@@ -326,7 +321,7 @@ h1 {
 .planet-figure::after {
   content: "";
   position: absolute;
-  inset: -2% 14% 8% -10%;
+  inset: -2% 16% 10% -12%;
   border-top: 1px solid rgba(255, 0, 212, 0.08);
   border-radius: 50%;
   transform: rotate(18deg);
