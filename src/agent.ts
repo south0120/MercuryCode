@@ -208,7 +208,61 @@ function expandFileMentions(prompt: string): { text: string; expanded: string[] 
   return { text: out, expanded };
 }
 
+/**
+ * Auto-compact: if the conversation exceeds AUTO_COMPACT_THRESHOLD tokens,
+ * summarize the older half via mercury-2 to free context. Triggered before
+ * each new user prompt is sent, so the summarizer cost is occasional, not
+ * per-turn.
+ */
+const AUTO_COMPACT_THRESHOLD_TOKENS = 60_000; // mercury-2 has 128K, leave headroom
+const AUTO_COMPACT_KEEP_LAST = 4;
+
+async function maybeAutoCompact(session: AgentSession): Promise<void> {
+  const totalTok = session.usage.promptTokens + session.usage.completionTokens;
+  if (totalTok < AUTO_COMPACT_THRESHOLD_TOKENS) return;
+  const transcript = session.messages.filter((m) => m.role === "user" || m.role === "assistant");
+  if (transcript.length <= AUTO_COMPACT_KEEP_LAST + 2) return;
+  const head = transcript.slice(0, transcript.length - AUTO_COMPACT_KEEP_LAST);
+  const tail = transcript.slice(transcript.length - AUTO_COMPACT_KEEP_LAST);
+  const summarizerPrompt = [
+    "Summarize the following conversation concisely as a structured note.",
+    "Preserve key decisions, file paths touched, libraries chosen, and unresolved TODOs.",
+    "Output 200-400 words plain prose. No headings, no top-level markdown bullets.",
+    "",
+    "--- conversation ---",
+    ...head.map((m) => `${m.role.toUpperCase()}: ${(m.content ?? "").toString().slice(0, 4000)}`),
+  ].join("\n");
+  process.stderr.write(`mcode: auto-compacting (>${AUTO_COMPACT_THRESHOLD_TOKENS} tokens)…\n`);
+  try {
+    const res = await session.options.client.chat({
+      model: session.options.model,
+      messages: [
+        { role: "system", content: "You are a precise meeting-minutes summarizer." },
+        { role: "user", content: summarizerPrompt },
+      ],
+    });
+    const summary = res.choices[0]?.message?.content?.trim();
+    if (!summary) return;
+    const sys = session.messages.find((m) => m.role === "system");
+    session.messages.length = 0;
+    if (sys) session.messages.push(sys);
+    session.messages.push({
+      role: "user",
+      content: `[Auto-compacted summary of earlier conversation]\n\n${summary}`,
+    });
+    for (const m of tail) session.messages.push(m);
+    // Reset usage counters to avoid retriggering immediately
+    session.usage.promptTokens = 0;
+    session.usage.completionTokens = 0;
+    process.stderr.write(`mcode: ✓ compacted ${head.length} turns → 1 summary\n`);
+  } catch {
+    // silent — keep going with full context
+  }
+}
+
 export async function runTurn(session: AgentSession, userPrompt: string): Promise<void> {
+  await maybeAutoCompact(session);
+
   const { text: expandedPrompt, expanded } = expandFileMentions(userPrompt);
   if (expanded.length) {
     ui.info(`@-expanded: ${expanded.map((p) => "@" + p).join(", ")}`);

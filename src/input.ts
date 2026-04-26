@@ -17,6 +17,11 @@ export interface ReadInputOptions {
   commands: SlashCommand[];
   history: string[];
   promptSymbol?: string;
+  /**
+   * Optional callback that returns the current right-aligned status line text
+   * (model · tokens · cost · plan-mode · etc.). Re-evaluated on each render.
+   */
+  statusLine?: () => string;
 }
 
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -52,6 +57,14 @@ function termWidth(): number {
 
 function rule(): string {
   return chalk.gray("─".repeat(termWidth()));
+}
+
+function ruleWithStatus(status: string): string {
+  const w = termWidth();
+  if (!status) return rule();
+  const visible = visualWidth(stripAnsi(status));
+  const pad = Math.max(0, w - visible - 2);
+  return chalk.gray("─".repeat(pad)) + " " + status + chalk.gray(" ");
 }
 
 function fuzzy(query: string, name: string): boolean {
@@ -285,7 +298,8 @@ export function readInput(opts: ReadInputOptions): Promise<string | undefined> {
       const inputLines = buffer.split("\n");
 
       const lines: string[] = [];
-      lines.push(rule());
+      const statusText = opts.statusLine ? opts.statusLine() : "";
+      lines.push(statusText ? ruleWithStatus(statusText) : rule());
       for (let i = 0; i < inputLines.length; i++) {
         lines.push(linePrefix(i) + inputLines[i]);
       }

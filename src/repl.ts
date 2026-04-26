@@ -71,7 +71,11 @@ export async function runRepl(options: AgentOptions): Promise<void> {
 
     let line: string | undefined;
     try {
-      line = await readInput({ commands: slashCommands, history });
+      line = await readInput({
+        commands: slashCommands,
+        history,
+        statusLine: () => buildStatusLine(session, options),
+      });
     } catch {
       break;
     }
@@ -760,6 +764,29 @@ function humanAge(d: Date): string {
   if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
   if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
   return `${Math.round(sec / 86400)}d ago`;
+}
+
+// Compose the right-aligned status line for the input prompt.
+function buildStatusLine(
+  session: ReturnType<typeof createSession>,
+  options: AgentOptions,
+): string {
+  const parts: string[] = [];
+  parts.push(chalk.cyan(options.model));
+  const tot = session.usage.promptTokens + session.usage.completionTokens;
+  if (tot > 0) {
+    const cost = (
+      session.usage.promptTokens * 0.00000025 +
+      session.usage.completionTokens * 0.00000075
+    ).toFixed(4);
+    parts.push(chalk.gray(`${(tot / 1000).toFixed(1)}K tok`));
+    parts.push(chalk.gray(`$${cost}`));
+  }
+  if (options.yolo) parts.push(chalk.bgYellow.black(" yolo "));
+  if (options.readOnly) parts.push(chalk.bgYellow.black(" read-only "));
+  if (options.planMode) parts.push(chalk.bgMagenta.white(" plan "));
+  if (options.effort) parts.push(chalk.gray(`effort:${options.effort}`));
+  return parts.join(chalk.gray(" · "));
 }
 
 // Copy text to the system clipboard via the platform-native helper.
@@ -1466,6 +1493,84 @@ function makeBuiltins(): BuiltinCommand[] {
         }
         writeFileSync(fname, lines.join("\n"));
         ui.info(`✓ exported ${chalk.cyan(fname)} (${session.messages.length} messages)`);
+        return "continue";
+      },
+    },
+    {
+      name: "recap",
+      description: "produce a one-line summary of the current session",
+      async run({ session }) {
+        const transcript = session.messages.filter((m) => m.role === "user" || m.role === "assistant");
+        if (transcript.length < 2) {
+          ui.info("(not enough conversation to recap)");
+          return "continue";
+        }
+        const prompt = [
+          "Summarize the following conversation in ONE sentence (≤ 30 words).",
+          "Mention the main task, key files touched, and current state. No quotes, no markdown.",
+          "",
+          ...transcript.map((m) => `${m.role.toUpperCase()}: ${(m.content ?? "").toString().slice(0, 1500)}`),
+        ].join("\n");
+        const res = await session.options.client.chat({
+          model: session.options.model,
+          messages: [
+            { role: "system", content: "You are a precise one-line summarizer." },
+            { role: "user", content: prompt },
+          ],
+        });
+        const summary = res.choices[0]?.message?.content?.trim();
+        if (summary) {
+          console.log(chalk.cyan("● recap: ") + summary);
+        }
+        return "continue";
+      },
+    },
+    {
+      name: "btw",
+      description: "side question — answer from current context without modifying history: /btw <question>",
+      async run({ arg, session }) {
+        const q = arg.trim();
+        if (!q) {
+          ui.error("usage: /btw <question>");
+          return "continue";
+        }
+        // Use the existing context (system + messages) but isolate the side Q/A.
+        const sideMessages = [
+          ...session.messages,
+          { role: "user" as const, content: `[side question — do not act on this, do not call tools, just answer briefly]\n\n${q}` },
+        ];
+        const res = await session.options.client.chat({
+          model: session.options.model,
+          messages: sideMessages,
+        });
+        const answer = res.choices[0]?.message?.content?.trim();
+        if (answer) {
+          console.log(chalk.gray("─".repeat(40)));
+          console.log(chalk.cyan("● btw: ") + answer);
+          console.log(chalk.gray("─".repeat(40)));
+        }
+        return "continue";
+      },
+    },
+    {
+      name: "rewind",
+      description: "rewind the conversation to before the last user prompt (alias: /undo extended)",
+      async run({ session }) {
+        // Find the last user message and truncate everything from that point on.
+        let lastUserIdx = -1;
+        for (let i = session.messages.length - 1; i >= 0; i--) {
+          if (session.messages[i].role === "user") {
+            lastUserIdx = i;
+            break;
+          }
+        }
+        if (lastUserIdx < 0) {
+          ui.info("(no user turn to rewind)");
+          return "continue";
+        }
+        const removed = session.messages.length - lastUserIdx;
+        session.messages.length = lastUserIdx;
+        ui.info(`✓ rewound ${removed} message(s) — next prompt restarts from before the last user turn`);
         return "continue";
       },
     },
