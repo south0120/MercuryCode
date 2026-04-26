@@ -142,7 +142,250 @@ const BUILTIN_SUBCOMMANDS: Record<string, SlashCommand[]> = {
     { name: "list", description: "show registered skills" },
     { name: "edit", description: "open a skill in $EDITOR" },
   ],
+  mcp: [
+    { name: "active", description: "show active MCP tools (loaded at startup)" },
+    { name: "list", description: "show configured servers in ~/.mcode/mcp.json" },
+    { name: "add", description: "add a server (preset picker: brave-search/github/...)" },
+    { name: "remove", description: "remove a configured server" },
+  ],
 };
+
+// ─── /mcp add — interactive MCP server configurator ──────────────────────────
+
+interface McpServerEntry {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+}
+
+interface McpUserConfig {
+  mcpServers?: Record<string, McpServerEntry>;
+}
+
+const MCP_USER_PATH = () => join(homedir(), ".mcode", "mcp.json");
+
+function readUserMcpConfig(): McpUserConfig {
+  const path = MCP_USER_PATH();
+  if (!existsSync(path)) return { mcpServers: {} };
+  try {
+    const json = JSON.parse(readFileSync(path, "utf8"));
+    if (!json.mcpServers) json.mcpServers = {};
+    return json;
+  } catch {
+    return { mcpServers: {} };
+  }
+}
+
+function writeUserMcpConfig(cfg: McpUserConfig): void {
+  const path = MCP_USER_PATH();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
+}
+
+interface McpPreset {
+  id: string;
+  label: string;
+  description: string;
+  build: () => Promise<{ name: string; spec: McpServerEntry } | null>;
+}
+
+const MCP_PRESETS: McpPreset[] = [
+  {
+    id: "brave-search",
+    label: "Brave Search",
+    description: "Web search via Brave Search API (needs BRAVE_API_KEY)",
+    async build() {
+      const fromEnv = process.env.BRAVE_API_KEY;
+      const { key } = await prompts({
+        type: "password",
+        name: "key",
+        message: fromEnv
+          ? "BRAVE_API_KEY (leave blank to use $BRAVE_API_KEY from your shell)"
+          : "BRAVE_API_KEY (sign up at https://api.search.brave.com)",
+      });
+      const finalKey = (key as string) || fromEnv;
+      if (!finalKey) {
+        ui.error("BRAVE_API_KEY required");
+        return null;
+      }
+      return {
+        name: "brave-search",
+        spec: {
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-brave-search"],
+          env: { BRAVE_API_KEY: finalKey },
+        },
+      };
+    },
+  },
+  {
+    id: "filesystem",
+    label: "Filesystem",
+    description: "Sandboxed file operations on a chosen directory",
+    async build() {
+      const { path } = await prompts({
+        type: "text",
+        name: "path",
+        message: "Allowed directory path",
+        initial: process.cwd(),
+      });
+      if (!path) return null;
+      return {
+        name: "filesystem",
+        spec: {
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-filesystem", String(path)],
+        },
+      };
+    },
+  },
+  {
+    id: "fetch",
+    label: "Fetch",
+    description: "HTTP GET arbitrary URLs (returns markdown). Requires `uvx`.",
+    async build() {
+      return {
+        name: "fetch",
+        spec: { command: "uvx", args: ["mcp-server-fetch"] },
+      };
+    },
+  },
+  {
+    id: "github",
+    label: "GitHub",
+    description: "Read/write repos, issues, PRs (needs GITHUB_PERSONAL_ACCESS_TOKEN)",
+    async build() {
+      const fromEnv = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_TOKEN;
+      const { token } = await prompts({
+        type: "password",
+        name: "token",
+        message: fromEnv
+          ? "GITHUB_PERSONAL_ACCESS_TOKEN (leave blank to use $GITHUB_TOKEN from shell)"
+          : "GITHUB_PERSONAL_ACCESS_TOKEN (https://github.com/settings/tokens)",
+      });
+      const finalToken = (token as string) || fromEnv;
+      if (!finalToken) {
+        ui.error("token required");
+        return null;
+      }
+      return {
+        name: "github",
+        spec: {
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-github"],
+          env: { GITHUB_PERSONAL_ACCESS_TOKEN: finalToken },
+        },
+      };
+    },
+  },
+  {
+    id: "custom",
+    label: "Custom",
+    description: "Manually specify command + args + env",
+    async build() {
+      const { name } = await prompts({ type: "text", name: "name", message: "Server name" });
+      if (!name) return null;
+      const { command } = await prompts({ type: "text", name: "command", message: "Executable (e.g. npx)" });
+      if (!command) return null;
+      const { argsLine } = await prompts({
+        type: "text",
+        name: "argsLine",
+        message: "Args (space-separated, optional)",
+      });
+      const { envLine } = await prompts({
+        type: "text",
+        name: "envLine",
+        message: "Env vars (KEY=VAL space-separated, optional)",
+      });
+      const args = argsLine ? String(argsLine).split(/\s+/).filter(Boolean) : undefined;
+      const env: Record<string, string> = {};
+      if (envLine) {
+        for (const pair of String(envLine).split(/\s+/).filter(Boolean)) {
+          const eq = pair.indexOf("=");
+          if (eq > 0) env[pair.slice(0, eq)] = pair.slice(eq + 1);
+        }
+      }
+      return {
+        name: String(name),
+        spec: {
+          command: String(command),
+          ...(args ? { args } : {}),
+          ...(Object.keys(env).length ? { env } : {}),
+        },
+      };
+    },
+  },
+];
+
+async function mcpAddInteractive(idHint?: string): Promise<void> {
+  let preset: McpPreset | undefined;
+  if (idHint) {
+    preset = MCP_PRESETS.find((p) => p.id === idHint);
+    if (!preset) {
+      ui.error(`unknown preset: ${idHint}`);
+      ui.info("  available: " + MCP_PRESETS.map((p) => p.id).join(", "));
+      return;
+    }
+  } else {
+    const { picked } = await prompts({
+      type: "select",
+      name: "picked",
+      message: chalk.bold("Choose an MCP server to add"),
+      choices: MCP_PRESETS.map((p) => ({
+        title: chalk.cyan(p.label.padEnd(14)) + chalk.gray(p.description),
+        value: p.id,
+      })),
+    });
+    if (!picked) return;
+    preset = MCP_PRESETS.find((p) => p.id === picked);
+    if (!preset) return;
+  }
+  const built = await preset.build();
+  if (!built) return;
+  const cfg = readUserMcpConfig();
+  if (!cfg.mcpServers) cfg.mcpServers = {};
+  if (cfg.mcpServers[built.name]) {
+    const { confirm } = await prompts({
+      type: "confirm",
+      name: "confirm",
+      message: `'${built.name}' already exists in mcp.json — overwrite?`,
+      initial: false,
+    });
+    if (!confirm) return;
+  }
+  cfg.mcpServers[built.name] = built.spec;
+  writeUserMcpConfig(cfg);
+  ui.info(`✓ added ${chalk.cyan(built.name)} to ~/.mcode/mcp.json`);
+  ui.info(chalk.yellow("  restart mcode to load this server's tools"));
+}
+
+async function mcpRemoveInteractive(nameHint?: string): Promise<void> {
+  const cfg = readUserMcpConfig();
+  const names = Object.keys(cfg.mcpServers ?? {});
+  if (!names.length) {
+    ui.info("(no servers configured)");
+    return;
+  }
+  let name = nameHint;
+  if (!name) {
+    const { picked } = await prompts({
+      type: "select",
+      name: "picked",
+      message: "Pick a server to remove",
+      choices: names.map((n) => ({ title: n, value: n })),
+    });
+    if (!picked) return;
+    name = String(picked);
+  }
+  if (!cfg.mcpServers?.[name]) {
+    ui.error(`not found: ${name}`);
+    return;
+  }
+  delete cfg.mcpServers[name];
+  writeUserMcpConfig(cfg);
+  ui.info(`✓ removed ${chalk.cyan(name)} (restart mcode to apply)`);
+}
 
 // ─── /skill new — guided skill creator ───────────────────────────────────────
 
@@ -962,12 +1205,42 @@ function makeBuiltins(): BuiltinCommand[] {
     },
     {
       name: "mcp",
-      description: "list active MCP tools (loaded at startup; restart to apply config changes)",
-      async run({ session }) {
-        const mcpTools = session.tools.filter((t) => t.name.startsWith("mcp__"));
-        if (!mcpTools.length) ui.info("(no MCP tools loaded — see .mcode/mcp.json)");
-        for (const t of mcpTools) {
-          console.log(`  ${chalk.cyan(t.name)} — ${t.description.slice(0, 100)}`);
+      description: "manage MCP servers (active / list / add / remove)",
+      async run({ arg, session }) {
+        const tokens = arg.trim().split(/\s+/).filter(Boolean);
+        const sub = tokens[0] ?? "active";
+        const rest = tokens.slice(1);
+        try {
+          if (sub === "active" || sub === "tools") {
+            const mcpTools = session.tools.filter((t) => t.name.startsWith("mcp__"));
+            if (!mcpTools.length) {
+              ui.info("(no MCP tools loaded — try /mcp add to configure one, then restart)");
+              return "continue";
+            }
+            for (const t of mcpTools) {
+              console.log(`  ${chalk.cyan(t.name)} — ${t.description.slice(0, 100)}`);
+            }
+          } else if (sub === "list" || sub === "configured") {
+            const cfg = readUserMcpConfig();
+            const entries = Object.entries(cfg.mcpServers ?? {});
+            if (!entries.length) {
+              ui.info("(no servers in ~/.mcode/mcp.json — /mcp add to configure one)");
+              return "continue";
+            }
+            for (const [name, spec] of entries) {
+              const cmdline = `${spec.command}${(spec.args ?? []).length ? " " + (spec.args ?? []).join(" ") : ""}`;
+              console.log(`  ${chalk.cyan(name.padEnd(18))} ${chalk.gray(cmdline)}`);
+            }
+          } else if (sub === "add") {
+            await mcpAddInteractive(rest[0]);
+          } else if (sub === "remove") {
+            await mcpRemoveInteractive(rest[0]);
+          } else {
+            ui.error(`unknown subcommand: ${sub}`);
+            ui.info("  try: /mcp active | list | add | remove");
+          }
+        } catch (e) {
+          ui.error((e as Error).message);
         }
         return "continue";
       },

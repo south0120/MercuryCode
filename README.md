@@ -100,7 +100,10 @@ When a line starts with `/` alone, a fuzzy-search picker opens.
 | `/models` | List all available Mercury models with capabilities |
 | `/skills` | List registered skills |
 | `/plugins` | List installed plugins |
-| `/mcp` | List active MCP tools |
+| `/mcp active` | Show active MCP tools (loaded at startup) |
+| `/mcp list` | Show configured servers in `~/.mcode/mcp.json` |
+| `/mcp add` | Interactive picker: Brave Search / Filesystem / Fetch / GitHub / Custom |
+| `/mcp remove [name]` | Remove a configured server |
 
 Multi-line input: press **Ctrl+Enter** (or **Ctrl+J** / **Option+Enter**) to insert a newline; plain **Enter** submits.
 
