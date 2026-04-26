@@ -96,6 +96,19 @@ When a line starts with `/` alone, a fuzzy-search picker opens.
 | `/test` | Run the project's tests (auto-detected from package.json/Cargo.toml/etc.) |
 | `/build` | Run the project's build (auto-detected) |
 | `/resume <name>` | Load a saved session and continue from there |
+| `/branch [name]` (alias `/fork`) | Snapshot the current conversation as a named session |
+| `/copy [N]` | Copy the Nth-latest assistant response to the clipboard |
+| `/diff` | Show git uncommitted changes (working tree vs HEAD) |
+| `/export [filename]` | Export the current conversation as Markdown |
+| `/compact [focus]` | Compress the conversation by summarizing older turns |
+| `/effort [low\|medium\|high\|max\|auto]` | Set Mercury reasoning effort |
+| `/recap` | One-line summary of the current session |
+| `/btw <question>` | Side question without polluting main history |
+| `/rewind` | Rewind to before the last user prompt |
+| `/theme [dark\|light\|highcontrast\|mercury]` | Switch color theme |
+| `! <cmd>` | Run a shell command directly (no AI involvement) |
+| `Ctrl+G` | Open the current prompt in `$EDITOR` |
+| `Ctrl+R` | Reverse-search command history |
 | `/model [id]` | Switch the active model (no arg = interactive picker; tools-capable filter) |
 | `/models` | List all available Mercury models with capabilities |
 | `/skills` | List registered skills |

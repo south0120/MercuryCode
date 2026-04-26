@@ -1553,6 +1553,48 @@ function makeBuiltins(): BuiltinCommand[] {
       },
     },
     {
+      name: "branch",
+      description: "snapshot the current conversation as a named session (alias: /fork)",
+      async run({ arg, session }) {
+        const name = arg.trim() || `branch-${new Date().toISOString().slice(11, 19).replace(/:/g, "")}`;
+        const path = join(SESSIONS_DIR, `${name}.json`);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, JSON.stringify(session.messages, null, 2));
+        ui.info(`✓ branched current state to ${chalk.cyan(name)}`);
+        ui.info(chalk.gray(`  resume with: /resume ${name}`));
+        return "continue";
+      },
+    },
+    {
+      name: "fork",
+      description: "alias for /branch",
+      async run(ctx) {
+        const builtins2 = makeBuiltins();
+        const branch = builtins2.find((b) => b.name === "branch");
+        if (branch) return branch.run(ctx);
+        return "continue";
+      },
+    },
+    {
+      name: "theme",
+      description: "switch color theme: /theme [dark|light|highcontrast|mercury]",
+      async run({ arg, options }) {
+        const v = arg.trim() as "" | "dark" | "light" | "highcontrast" | "mercury";
+        if (!v) {
+          console.log(`current theme: ${chalk.cyan(options.theme ?? "mercury")}`);
+          console.log(`available:     ${chalk.gray("dark · light · highcontrast · mercury")}`);
+          return "continue";
+        }
+        if (!["dark", "light", "highcontrast", "mercury"].includes(v)) {
+          ui.error("usage: /theme [dark|light|highcontrast|mercury]");
+          return "continue";
+        }
+        options.theme = v;
+        ui.info(`✓ theme: ${chalk.cyan(v)} (restart mcode for full effect)`);
+        return "continue";
+      },
+    },
+    {
       name: "rewind",
       description: "rewind the conversation to before the last user prompt (alias: /undo extended)",
       async run({ session }) {

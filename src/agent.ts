@@ -27,6 +27,7 @@ export interface AgentOptions {
   pluginHookFiles?: string[];
   stream?: boolean;
   effort?: string;
+  theme?: string;
 }
 
 export interface AgentSession {
