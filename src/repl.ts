@@ -252,6 +252,50 @@ const MCP_PRESETS: McpPreset[] = [
     },
   },
   {
+    id: "context7",
+    label: "Context7",
+    description: "Up-to-date library docs (Next.js, React, Vercel SDK, etc.) — no key",
+    async build() {
+      return {
+        name: "context7",
+        spec: { command: "npx", args: ["-y", "@upstash/context7-mcp"] },
+      };
+    },
+  },
+  {
+    id: "playwright",
+    label: "Playwright",
+    description: "Browser automation, screenshots, DOM queries — no key",
+    async build() {
+      return {
+        name: "playwright",
+        spec: { command: "npx", args: ["-y", "@playwright/mcp@latest"] },
+      };
+    },
+  },
+  {
+    id: "memory",
+    label: "Memory",
+    description: "Persistent knowledge graph across sessions — no key",
+    async build() {
+      return {
+        name: "memory",
+        spec: { command: "npx", args: ["-y", "@modelcontextprotocol/server-memory"] },
+      };
+    },
+  },
+  {
+    id: "sequential-thinking",
+    label: "Sequential Thinking",
+    description: "Structured reasoning helper for complex tasks — no key",
+    async build() {
+      return {
+        name: "sequential-thinking",
+        spec: { command: "npx", args: ["-y", "@modelcontextprotocol/server-sequential-thinking"] },
+      };
+    },
+  },
+  {
     id: "github",
     label: "GitHub",
     description: "Read/write repos, issues, PRs (needs GITHUB_PERSONAL_ACCESS_TOKEN)",
