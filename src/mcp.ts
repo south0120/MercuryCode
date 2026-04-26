@@ -70,10 +70,17 @@ export async function connectMcpServer(
   const list = await client.listTools();
   const tools: Tool[] = (list.tools ?? []).map((t) => {
     const localName = `mcp__${sanitizeName(serverName)}__${sanitizeName(t.name)}`;
+    // MCP tools default to no-approval (search, fetch, etc. are typically safe).
+    // If the server explicitly marks a tool as destructive via the standard
+    // annotations (`destructiveHint: true`), keep the approval prompt as a
+    // safety net.
+    const annotations = (t as { annotations?: { destructiveHint?: boolean; readOnlyHint?: boolean } })
+      .annotations;
+    const requiresApproval = annotations?.destructiveHint === true;
     return {
       name: localName,
       description: `[${serverName}] ${t.description ?? t.name}`,
-      requiresApproval: true,
+      requiresApproval,
       parameters: (t.inputSchema as Record<string, unknown>) ?? {
         type: "object",
         properties: {},
